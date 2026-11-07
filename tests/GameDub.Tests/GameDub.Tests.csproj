@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+ <ItemGroup><ProjectReference Include="../../src/GameDub.Core/GameDub.Core.csproj" /></ItemGroup>
+ <ItemGroup><ProjectReference Include="../../tools/GameDub.TestSource/GameDub.TestSource.csproj" ReferenceOutputAssembly="false" /></ItemGroup>
+</Project>

@@ -1,0 +1,14 @@
+{
+  "GameId": "YourGameProcessName",
+  "Setting": "Unknown; enter only verified setting details.",
+  "DefaultVoice": "hf_alpha",
+  "Voices": {
+    "Character A": "hm_omega",
+    "Character B": "hf_alpha",
+    "Character C": "hm_psi"
+  },
+  "Relationships": {},
+  "Glossary": {},
+  "ReviewedLines": {},
+  "Region": null
+}

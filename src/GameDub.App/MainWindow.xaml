@@ -1,0 +1,49 @@
+<Window x:Class="GameDub.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="GameDub AI" Width="900" Height="850" MinWidth="760" MinHeight="740" Background="#11151B" Foreground="#ECEFF4" FontFamily="Segoe UI" FontSize="14" Closing="Window_Closing">
+ <Grid Margin="28,22">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <DockPanel><StackPanel><TextBlock Text="GameDub AI" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="English → Hindi · runs locally · no API accounts" Foreground="#9DA9BB" Margin="0,4,0,16"/></StackPanel><TextBlock Text="OFFLINE BUILD" Foreground="#83B4FF" HorizontalAlignment="Right" FontSize="11" Margin="0,10,0,0"/></DockPanel>
+  <Border Grid.Row="1" Background="#1B2028" Padding="12,9" Margin="0,0,0,18"><TextBlock x:Name="Readiness" Text="Checking local models…" Foreground="#AABBD0"/></Border>
+  <TabControl Grid.Row="2" Background="#11151B" BorderThickness="0" SelectionChanged="Tabs_Changed">
+   <TabItem Header="Dubbing"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,18,0,10">
+    <TextBlock Text="1. Select your actual running game" Foreground="#AAB6C8" Margin="0,0,0,7"/>
+    <DockPanel><Button Content="Refresh" DockPanel.Dock="Right" Click="Refresh_Click" Margin="10,0,0,0"/><ComboBox x:Name="Games" SelectionChanged="Games_Changed"/></DockPanel>
+    <TextBlock x:Name="TargetStatus" Text="Select a running game to begin." Foreground="#A7C9F6" FontSize="12" Margin="0,8,0,0"/>
+    <WrapPanel Margin="0,12,0,0"><Button Content="2. Select subtitle region" Click="Region_Click"/><Button x:Name="PickGameButton" Content="Pick game in 5 seconds" Click="PickGame_Click"/><Button Content="Test demo (not your game)" Click="Demo_Click"/></WrapPanel>
+    <TextBlock x:Name="RegionStatus" Text="Select a small region around English subtitles. Use a borderless/windowed game." Foreground="#8D9BB0" FontSize="12" Margin="0,8,0,20"/>
+    <DockPanel Margin="0,0,0,14"><TextBlock Text="Dialogue source" VerticalAlignment="Center" Margin="0,0,12,0"/><ComboBox x:Name="InputMode"><ComboBoxItem Content="Subtitles (recommended)"/><ComboBoxItem Content="Automatic (subtitles + audio fallback)"/><ComboBoxItem Content="Game audio (experimental offline ASR)"/></ComboBox></DockPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+     <StackPanel><TextBlock Text="Voice engine" Foreground="#AAB6C8"/><TextBlock x:Name="EngineLabel" Text="Kokoro · local neural Hindi" Margin="0,6,0,0"/></StackPanel>
+     <StackPanel Grid.Column="1"><TextBlock Text="Performance mode" Foreground="#AAB6C8"/><ComboBox x:Name="Mode" Margin="0,5,0,0" SelectionChanged="Mode_Changed"><ComboBoxItem Content="Balanced"/><ComboBoxItem Content="Quality"/><ComboBoxItem Content="Performance"/></ComboBox></StackPanel>
+    </Grid>
+    <TextBlock Text="Voice quality needs your listening review. Kokoro has no reliable emotional acting controls." Foreground="#8D9BB0" FontSize="12" Margin="0,12,0,18"/>
+    <WrapPanel><Button x:Name="StartButton" Content="Start dubbing" Background="#3577CC" FontWeight="SemiBold" Click="Start_Click"/><Button Content="Stop / cancel speech" Click="Stop_Click"/></WrapPanel>
+    <GroupBox Header="Latest dialogue"><StackPanel><TextBlock Text="ENGLISH" Foreground="#8291A7" FontSize="10"/><TextBlock x:Name="Original" Text="Waiting for dialogue…" FontSize="16" Margin="0,7,0,18"/><TextBlock Text="HINDI" Foreground="#8291A7" FontSize="10"/><TextBlock x:Name="Hindi" Text="हिंदी संवाद यहाँ दिखेगा।" FontFamily="Nirmala UI" FontSize="23" Margin="0,7,0,5"/><TextBlock x:Name="LineSource" FontSize="11" Foreground="#91A1B9"/></StackPanel></GroupBox>
+    <TextBlock Text="For music and effects: lower only the game's dialogue volume yourself and keep subtitles enabled. Optional ducking lowers the selected game's entire mix while Hindi plays." Foreground="#9BA9BD" FontSize="12" Margin="0,14,0,0"/>
+   </StackPanel></ScrollViewer></TabItem>
+   <TabItem Header="Voice lab"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,18,0,10">
+    <TextBlock Text="Try a line before launching a game" FontSize="18" Margin="0,0,0,10"/>
+    <ComboBox x:Name="Samples" DisplayMemberPath="English" SelectionChanged="Samples_Changed"/>
+    <TextBox x:Name="EnglishInput" Height="75" AcceptsReturn="True" Margin="0,10,0,8"/>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Speaker label (optional)" Foreground="#9BA9BD"/><TextBox x:Name="SpeakerInput" Text="Unknown" Margin="0,5,8,0"/></StackPanel><StackPanel Grid.Column="1"><TextBlock Text="Delivery hint (manual, not acoustic detection)" Foreground="#9BA9BD"/><ComboBox x:Name="Emotion" Margin="0,5,0,0"/></StackPanel></Grid>
+    <TextBlock Text="Known context (retained; small MT model cannot reason over it)" Foreground="#9BA9BD" Margin="0,12,0,4"/><TextBox x:Name="ContextInput" Height="58"/>
+    <Grid Margin="0,14,0,12"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Voice A"/><ComboBox x:Name="VoiceA" DisplayMemberPath="Label" Margin="0,6,8,0"/></StackPanel><StackPanel Grid.Column="1"><TextBlock Text="Voice B"/><ComboBox x:Name="VoiceB" DisplayMemberPath="Label" Margin="0,6,0,0"/></StackPanel></Grid>
+    <WrapPanel><Button Content="Translate + play A" Click="Generate_Click"/><Button Content="Compare A / B" Click="Compare_Click"/><Button x:Name="ReplayButton" Content="Replay last" IsEnabled="False" Click="Replay_Click"/><Button Content="Stop" Click="Stop_Click"/></WrapPanel>
+    <TextBlock x:Name="LabHindi" FontFamily="Nirmala UI" FontSize="23" Margin="0,22,0,10"/>
+    <TextBlock Text="Rate the last playback (human review only)" Foreground="#AAB6C8"/><WrapPanel Margin="0,8,0,0"><ComboBox x:Name="Rating" Width="170"/><Button Content="Save rating" Click="Rating_Click" Margin="10,0,0,0"/></WrapPanel>
+    <TextBlock Text="Bundled examples use curated reference wording. Arbitrary text uses a small offline MT model; meaning, pronouns and slang need review. A/B changes voice identities, not model families." FontSize="12" Foreground="#91A1B9" Margin="0,16,0,0"/>
+   </StackPanel></ScrollViewer></TabItem>
+   <TabItem Header="Settings"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,18,0,10">
+    <TextBlock Text="Audio output"/><ComboBox x:Name="Outputs" Margin="0,6,0,12"/>
+    <TextBlock Text="Hindi volume"/><Slider x:Name="Volume" Minimum="0" Maximum="1" Value="0.7" Margin="0,8,0,12"/>
+    <TextBlock Text="Translation"/><ComboBox x:Name="Translator" Margin="0,6,0,12"><ComboBoxItem Content="Offline English → Hindi"/><ComboBoxItem Content="Local sample fixtures (test only)"/></ComboBox>
+    <TextBlock Text="Voice synthesis"/><ComboBox x:Name="Tts" Margin="0,6,0,6"><ComboBoxItem Content="Kokoro Hindi (local neural)"/><ComboBoxItem Content="eSpeak NG (offline test)"/></ComboBox>
+    <CheckBox x:Name="Ducking" Content="Duck only selected game's full audio mix during Hindi (restore afterward)"/>
+    <TextBlock Text="No voice isolation. No microphone or paid providers. The selected game alone is attenuated to 30%; unrelated audio is untouched." Foreground="#91A1B9" FontSize="12"/>
+    <GroupBox Header="Current game profile"><StackPanel><TextBlock Text="Edit speaker → voice mappings, glossary, setting and known relationships as JSON. Unknown speakers use DefaultVoice. Select a game before saving its profile." FontSize="12" Foreground="#91A1B9" Margin="0,0,0,8"/><TextBox x:Name="ProfileJson" Height="200" AcceptsReturn="True" FontFamily="Consolas" FontSize="12" VerticalScrollBarVisibility="Auto"/></StackPanel></GroupBox>
+    <WrapPanel Margin="0,12,0,0"><Button Content="Save settings + profile" Click="Save_Click"/><Button Content="Refresh output devices" Click="RefreshOutputs_Click"/></WrapPanel>
+   </StackPanel></ScrollViewer></TabItem>
+   <TabItem Header="Diagnostics"><StackPanel TextElement.Foreground="#ECEFF4" Margin="0,18,0,0"><TextBlock x:Name="Metrics" Text="No measurements yet."/><TextBlock x:Name="ResourceInfo" Margin="0,16,0,16"/><TextBox x:Name="Log" Height="350" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/><Button Content="Export diagnostics" Click="Export_Click" HorizontalAlignment="Left" Margin="0,12,0,0"/><TextBlock Text="Latency ends at WASAPI Play(). Acoustic arrival and hardware buffering are not measured. FPS impact requires a real gameplay test." Foreground="#91A1B9" FontSize="12" Margin="0,14,0,0"/></StackPanel></TabItem>
+  </TabControl>
+  <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="#2D3542" Padding="0,12,0,0" Margin="0,14,0,0"><TextBlock x:Name="Status" Text="Ready to test local Hindi audio." Foreground="#A7C9F6" FontSize="12"/></Border>
+ </Grid>
+</Window>
