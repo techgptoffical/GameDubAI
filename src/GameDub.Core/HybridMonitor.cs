@@ -58,14 +58,15 @@ public sealed class HybridArbiter(IDialogueSink downstream)
 
 public sealed class HybridMonitor(LocalWorker asr)
 {
+    public PipelineTrace? Trace { get; set; }
     public event Action<string>? Status;
-    public async Task RunAsync(GameWindow game, CaptureRegion region, DialogueRouter router, CancellationToken token)
+    public async Task RunAsync(GameWindow game, CaptureRegion region, DialogueRouter router, CancellationToken token,GameProfile? profile = null)
     {
         var arbiter = new HybridArbiter(router);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var subtitles = new SubtitleMonitor(); subtitles.Status += message => Status?.Invoke(message);
+        var subtitles = new SubtitleMonitor() { Trace=Trace }; subtitles.Status += message => Status?.Invoke(message);
         var audio = new LiveAudioMonitor(asr); audio.Status += message => Status?.Invoke(message);
-        var subtitleTask = subtitles.RunAsync(game, region, arbiter.Subtitles, lifetime.Token);
+        var subtitleTask = subtitles.RunAsync(game, region, arbiter.Subtitles, lifetime.Token,profile);
         var audioTask = AudioOrFallbackAsync();
         try { await subtitleTask; }
         finally

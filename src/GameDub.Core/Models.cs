@@ -4,10 +4,17 @@ using System.Text.RegularExpressions;
 namespace GameDub.Core;
 
 public record DialogueSample(string Id, string English, string Hindi, string Emotion, string Speaker, string Context);
-public record Dialogue(string English, string Speaker = "Unknown", string Emotion = "neutral", string Context = "", double? DurationSeconds = null);
+public record Dialogue(string English, string Speaker = "Unknown", string Emotion = "neutral", string Context = "", double? DurationSeconds = null)
+{
+    public string EventId { get; init; } = Guid.NewGuid().ToString("N");
+    public DateTimeOffset FirstSeenAt { get; init; } = DateTimeOffset.UtcNow;
+}
 public record LocalizedLine(string Hindi, string Emotion, string Source);
 public record AudioClip(byte[] Bytes, string Format, string Identity);
-public record LatencyRecord(DateTimeOffset At, string Source, bool CacheHit, double TranslationMs, double SynthesisMs, double FirstAudioMs, double TotalMs);
+public record LatencyRecord(DateTimeOffset At, string Source, bool CacheHit, double TranslationMs, double SynthesisMs, double FirstAudioMs, double TotalMs)
+{
+    public double? ObservedToAudioMs { get; init; }
+}
 public record CaptureRegion(int X, int Y, int Width, int Height);
 public sealed class GameProfile
 {
@@ -19,6 +26,10 @@ public sealed class GameProfile
     public Dictionary<string, string> Glossary { get; set; } = new();
     public Dictionary<string, string> ReviewedLines { get; set; } = new();
     public CaptureRegion? Region { get; set; }
+    public int RegionReferenceWidth { get; set; }
+    public int RegionReferenceHeight { get; set; }
+    public string OcrStyle { get; set; } = "Raw";
+    public int OcrScale { get; set; } = 1;
     public string VoiceFor(string speaker) => Voices.GetValueOrDefault(speaker, DefaultVoice);
 }
 

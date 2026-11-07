@@ -308,6 +308,116 @@ await Test("sentence order and complete generated-audio cache are preserved", as
     Check(replay.CacheHit && player.Plays==3, "Full combined clip was not replayed from cache");
 });
 
+await Test("ordered mode finishes lines, prefetches during speech, and never overlaps speakers", async () =>
+{
+    var output=new SequencePlayer(180); var voice=new ObservingVoice(()=>output.Active>0);
+    var pipeline=new DubbingPipeline(new FakeLocalizer(20),voice,output,new(Path.Combine(testRoot,"ordered")),new());
+    await using var router=new DialogueRouter(pipeline,output,true,3000);
+    router.Submit(new("first")); await output.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    router.Submit(new("second")); await Task.Delay(30); router.Submit(new("third"));
+    using var timeout=new CancellationTokenSource(3000); await router.WaitForIdleAsync(timeout.Token);
+    Check(output.Lines.SequenceEqual(new[]{"first","second","third"}),"Ordered dialogue was cancelled or reordered");
+    Check(output.MaxActive==1 && voice.PreparedDuringPlayback>0,"No preparation overlap, or simultaneous speech");
+});
+await Test("50 rapid submissions keep a bounded buffer and report every overload drop", async () =>
+{
+    var output=new SequencePlayer(120); var pipeline=new DubbingPipeline(new FakeLocalizer(20),new FakeVoice(),output,new(Path.Combine(testRoot,"flood")),new());
+    using var trace=new PipelineTrace(Path.Combine(testRoot,"flood-trace")); pipeline.Trace=trace;
+    await using var router=new DialogueRouter(pipeline,output,true,2000);
+    router.Submit(new("first")); await output.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    for(var i=0;i<50;i++) { router.Submit(new("line"+i)); Check(router.PendingCount<=2,"Unbounded pending queue"); }
+    using var timeout=new CancellationTokenSource(3000); await router.WaitForIdleAsync(timeout.Token);
+    Check(output.Lines.Count+router.DroppedCount==51,"Missing terminal outcome for a submitted line");
+    Check(router.DroppedCount>=46 && output.MaxActive==1,"Overload did not stay bounded");
+});
+await Test("ordered Stop cancels playback and prefetched work, then recovers", async () =>
+{
+    var output=new SequencePlayer(400); var pipeline=new DubbingPipeline(new FakeLocalizer(20),new FakeVoice(),output,new(Path.Combine(testRoot,"ordered-stop")),new());
+    await using var router=new DialogueRouter(pipeline,output,true,2000);
+    router.Submit(new("first")); await output.Started.Task.WaitAsync(TimeSpan.FromSeconds(2)); router.Submit(new("prefetch"));
+    await Task.Delay(50); var timer=Stopwatch.StartNew(); router.Interrupt();
+    using var timeout=new CancellationTokenSource(3000); await router.WaitForIdleAsync(timeout.Token);
+    Check(timer.ElapsedMilliseconds<500 && output.Lines.Count==1,"Stop allowed stale speech");
+    router.Submit(new("recovery")); await router.WaitForIdleAsync(timeout.Token);
+    Check(output.Lines.Last()=="recovery","Router did not recover after Stop");
+});
+await Test("a prefetched provider failure cannot let later playback overtake current speech", async () =>
+{
+    var output=new SequencePlayer(180); var pipeline=new DubbingPipeline(new FakeLocalizer(10),new FakeVoice(),output,new(Path.Combine(testRoot,"order-failure")),new());
+    await using var router=new DialogueRouter(pipeline,output,true,2000);
+    router.Submit(new("first")); await output.Started.Task.WaitAsync(TimeSpan.FromSeconds(2)); router.Submit(new("fail")); router.Submit(new("third"));
+    using var timeout=new CancellationTokenSource(3000); await router.WaitForIdleAsync(timeout.Token);
+    Check(output.Lines.SequenceEqual(new[]{"first","third"}) && output.MaxActive==1,"Failure broke playback ordering");
+});
+await Test("deadline is checked after ordered playback wait, not only after synthesis", async () =>
+{
+    var output=new SequencePlayer(250); var pipeline=new DubbingPipeline(new FakeLocalizer(10),new FakeVoice(),output,new(Path.Combine(testRoot,"ordered-deadline")),new());
+    await using var router=new DialogueRouter(pipeline,output,true,100);
+    router.Submit(new("first")); await output.Started.Task.WaitAsync(TimeSpan.FromSeconds(2)); router.Submit(new("expired"));
+    using var timeout=new CancellationTokenSource(3000); await router.WaitForIdleAsync(timeout.Token);
+    Check(output.Lines.Count==1 && router.DroppedCount==1,"Expired prefetched speech played late");
+});
+await Test("capture reference dimensions scale regions without changing the saved profile", () =>
+{
+    var p=new GameProfile { RegionReferenceWidth=1920,RegionReferenceHeight=1080 };
+    var region=new CaptureRegion(300,900,1200,120); var result=SubtitleImages.Resolve(region,1280,720,p);
+    Check(result==new CaptureRegion(200,600,800,80) && p.RegionReferenceWidth==1920,"Region scaling incorrect");
+    return Task.CompletedTask;
+});
+await Test("diagnostic IDs and timestamps do not invalidate content caches", () =>
+{
+    var a=new Dialogue("Open this door."); var b=a with { EventId="other",FirstSeenAt=DateTimeOffset.UtcNow.AddHours(1) };
+    Check(DialogueCache.Identity(a,new(),"mt","tts","voice",[])==DialogueCache.Identity(b,new(),"mt","tts","voice",[]),"Diagnostic metadata changed cache identity"); return Task.CompletedTask;
+});
+await Test("recorded OCR timing replays without a game and preserves duplicate filtering", async () =>
+{
+    var directory=Path.Combine(testRoot,"trace-replay");
+    using(var trace=new PipelineTrace(directory))
+    {
+        trace.Write("ocr",null,new { text="Open the red door." }); await Task.Delay(170);
+        trace.Write("ocr",null,new { text="Open the red door." }); await Task.Delay(20);
+        trace.Write("ocr",null,new { text="Open the red door." });
+    }
+    var sink=new CollectingSink(); await DiagnosticReplay.ReplayOcrAsync(directory,sink,default);
+    Check(sink.Lines.Count==1,"Trace replay missed/duplicated confirmed dialogue");
+    try { DiagnosticReplay.CropPath(directory,"../other.png"); throw new Exception("Escaped replay directory"); } catch(InvalidDataException) { }
+});
+
+if(args.Contains("--rapid"))
+{
+    await Test("50-event wall-clock OCR replay, raw and enhanced",async ()=>
+    {
+        using var timeout=new CancellationTokenSource(TimeSpan.FromMinutes(4));
+        await RapidAcceptance.RunAsync(Path.Combine(testRoot,"rapid"),timeout.Token);
+        using var doc=System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(testRoot,"rapid","rapid-Auto.json")));
+        Check(doc.RootElement.GetProperty("recall").GetDouble()>=.95,"Enhanced OCR recall missed the 95% target; inspect rapid report");
+    });
+}
+if(args.Contains("--speech-acceptance"))
+{
+    await Test("50 unseen rendered subtitles → native OCR → NLLB → repaired GPU Hindi → WASAPI",async ()=>
+    {
+        var directory=Path.Combine(testRoot,"speech-acceptance"); Directory.CreateDirectory(directory);
+        using var mt=new LocalWorker("translate-nllb");using var gpu=new LocalWorker("tts-dml");using var cpu=new LocalWorker("tts");
+        await Task.WhenAll(mt.WarmAsync(default),gpu.WarmAsync(default));
+        using var player=new WasapiPlayer { Volume=.25f };
+        using var trace=new PipelineTrace(Path.Combine(directory,"trace"));
+        var voice=new CachedVoice(new FallbackVoice(new KokoroVoice(gpu),new KokoroVoice(cpu)),new DialogueCache(Path.Combine(directory,"cache")));
+        var pipeline=new DubbingPipeline(new OfflineLocalizer(mt,1),voice,player,new(Path.Combine(directory,"dialogue-cache")),new() { DefaultVoice="hf_alpha" },12000) { Trace=trace };
+        await using var router=new DialogueRouter(pipeline,player,true,12000);
+        router.Error+=s=>Console.WriteLine("Speech acceptance: "+s);
+        using var timeout=new CancellationTokenSource(TimeSpan.FromMinutes(4));
+        await RapidAcceptance.RunAsync(Path.Combine(directory,"replay"),timeout.Token,router,trace);
+        await router.WaitForIdleAsync(timeout.Token);
+        var metrics=pipeline.Metrics.Snapshot();
+        Json.Write(Path.Combine(directory,"playback.json"),new { playbackStarts=metrics.Length,dropped=router.DroppedCount,pending=router.PendingCount,metrics,
+            workerMiB=new { mt=mt.WorkingSetBytes/1048576.0,gpu=gpu.WorkingSetBytes/1048576.0,cpu=cpu.WorkingSetBytes/1048576.0 },
+            note="Playback requests are real WASAPI starts, not a human audible-line count. First-observed latency and every drop reason are in trace. Not a GTA/FPS acceptance pass." });
+        Console.WriteLine($"50-event speech acceptance: {metrics.Length} playback starts, {router.DroppedCount} drops. Detailed trace: {directory}");
+        Check(router.PendingCount==0 && metrics.Length>0,"No real Hindi playback or backlog failed to drain");
+    });
+}
+
 if (args.Contains("--integration"))
 {
     await Test("cancelled local inference keeps its warm process and drains before the next reply", async () =>
@@ -551,4 +661,28 @@ sealed class ChunkedFakeVoice(bool blockSecond) : IChunkedVoiceProvider
 sealed class PassiveTestWindow : System.Windows.Forms.Form
 {
     protected override bool ShowWithoutActivation => true;
+}
+sealed class SequencePlayer(int durationMs) : IAudioPlayer
+{
+    public readonly List<string> Lines=new();
+    public readonly TaskCompletionSource Started=new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public int Active,MaxActive;
+    public async Task PlayAsync(AudioClip clip,Action started,CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested(); var active=Interlocked.Increment(ref Active); MaxActive=Math.Max(MaxActive,active);
+        lock(Lines) Lines.Add(System.Text.Encoding.UTF8.GetString(clip.Bytes));
+        started(); Started.TrySetResult();
+        try { await Task.Delay(durationMs,token); } finally { Interlocked.Decrement(ref Active); }
+    }
+    public void Stop() { }
+}
+sealed class ObservingVoice(Func<bool> playing) : IVoiceProvider
+{
+    public int PreparedDuringPlayback;
+    public string Identity=>"observed-test-voice";
+    public async Task<AudioClip> SynthesizeAsync(LocalizedLine line,string voice,CancellationToken token)
+    {
+        if(playing())Interlocked.Increment(ref PreparedDuringPlayback);
+        await Task.Delay(20,token); return new(System.Text.Encoding.UTF8.GetBytes(line.Hindi),"pcm_24000",Identity);
+    }
 }

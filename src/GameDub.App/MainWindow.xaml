@@ -35,14 +35,21 @@
    <TabItem Header="Settings"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,18,0,10">
     <TextBlock Text="Audio output"/><ComboBox x:Name="Outputs" Margin="0,6,0,12"/>
     <TextBlock Text="Hindi volume"/><Slider x:Name="Volume" Minimum="0" Maximum="1" Value="0.7" Margin="0,8,0,12"/>
-    <TextBlock Text="Translation"/><ComboBox x:Name="Translator" Margin="0,6,0,12"><ComboBoxItem Content="Offline English → Hindi"/><ComboBoxItem Content="Local sample fixtures (test only)"/></ComboBox>
-    <TextBlock Text="Voice synthesis"/><ComboBox x:Name="Tts" Margin="0,6,0,6"><ComboBoxItem Content="Kokoro Hindi (local neural)"/><ComboBoxItem Content="eSpeak NG (offline test)"/></ComboBox>
+    <TextBlock Text="Translation"/><ComboBox x:Name="Translator" Margin="0,6,0,4"><ComboBoxItem Content="Offline English → Hindi"/><ComboBoxItem Content="Offline NLLB Hindi (noncommercial research)"/><ComboBoxItem Content="Local sample fixtures (test only)"/></ComboBox>
+    <TextBlock Text="Marian is Apache-2.0. Optional NLLB weights are CC-BY-NC-4.0, for noncommercial use." Foreground="#91A1B9" FontSize="12" Margin="0,0,0,12"/>
+    <TextBlock Text="Voice synthesis"/><ComboBox x:Name="Tts" Margin="0,6,0,6"><ComboBoxItem Content="Kokoro Hindi (local neural)"/><ComboBoxItem Content="Kokoro Hindi GPU (DirectML + CPU fallback)"/><ComboBoxItem Content="eSpeak NG (offline test)"/></ComboBox>
     <CheckBox x:Name="Ducking" Content="Duck only selected game's full audio mix during Hindi (restore afterward)"/>
     <TextBlock Text="No voice isolation. No microphone or paid providers. The selected game alone is attenuated to 30%; unrelated audio is untouched." Foreground="#91A1B9" FontSize="12"/>
     <GroupBox Header="Current game profile"><StackPanel><TextBlock Text="Edit speaker → voice mappings, glossary, setting and known relationships as JSON. Unknown speakers use DefaultVoice. Select a game before saving its profile." FontSize="12" Foreground="#91A1B9" Margin="0,0,0,8"/><TextBox x:Name="ProfileJson" Height="200" AcceptsReturn="True" FontFamily="Consolas" FontSize="12" VerticalScrollBarVisibility="Auto"/></StackPanel></GroupBox>
     <WrapPanel Margin="0,12,0,0"><Button Content="Save settings + profile" Click="Save_Click"/><Button Content="Refresh output devices" Click="RefreshOutputs_Click"/></WrapPanel>
    </StackPanel></ScrollViewer></TabItem>
-   <TabItem Header="Diagnostics"><StackPanel TextElement.Foreground="#ECEFF4" Margin="0,18,0,0"><TextBlock x:Name="Metrics" Text="No measurements yet."/><TextBlock x:Name="ResourceInfo" Margin="0,16,0,16"/><TextBox x:Name="Log" Height="350" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/><Button Content="Export diagnostics" Click="Export_Click" HorizontalAlignment="Left" Margin="0,12,0,0"/><TextBlock Text="Latency ends at WASAPI Play(). Acoustic arrival and hardware buffering are not measured. FPS impact requires a real gameplay test." Foreground="#91A1B9" FontSize="12" Margin="0,14,0,0"/></StackPanel></TabItem>
+   <TabItem Header="Diagnostics"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel TextElement.Foreground="#ECEFF4" Margin="0,18,0,0">
+    <CheckBox x:Name="CaptureDiagnostics" Content="Record local diagnostic crops and timings for the next dubbing session"/>
+    <TextBlock Text="Crop only: at most 120 images / 16 MiB / 2 minutes. No game audio. Off by default." Foreground="#91A1B9" FontSize="12"/>
+    <TextBlock x:Name="DiagnosticPath" TextWrapping="Wrap" Margin="0,5,0,5"/>
+    <WrapPanel><Button Content="Replay latest OCR timing + Hindi" Click="ReplayDiagnostics_Click"/><Button Content="Re-OCR latest saved crops" Click="RecheckCrops_Click"/></WrapPanel>
+    <TextBlock x:Name="Metrics" Text="No measurements yet."/><TextBlock x:Name="ResourceInfo" Margin="0,16,0,16"/><TextBox x:Name="Log" Height="300" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/><Button Content="Export diagnostics" Click="Export_Click" HorizontalAlignment="Left" Margin="0,12,0,0"/><TextBlock Text="Latency ends at WASAPI Play(). Acoustic arrival and hardware buffering are not measured. FPS impact requires a real gameplay test." Foreground="#91A1B9" FontSize="12" Margin="0,14,0,0"/>
+   </StackPanel></ScrollViewer></TabItem>
   </TabControl>
   <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="#2D3542" Padding="0,12,0,0" Margin="0,14,0,0"><TextBlock x:Name="Status" Text="Ready to test local Hindi audio." Foreground="#A7C9F6" FontSize="12"/></Border>
  </Grid>

@@ -1,0 +1,14 @@
+[
+  {
+    "file": "encoder_model_quantized.onnx",
+    "url": "https://huggingface.co/Xenova/opus-mt-en-hi/resolve/main/onnx/encoder_model_quantized.onnx",
+    "bytes": 51337630,
+    "sha256": "3045cd6eaf06db96cff853204d6f0ffeb0c5af238a4f5a87a19fcaa94f7493c4"
+  },
+  {
+    "file": "decoder_model_merged_quantized.onnx",
+    "url": "https://huggingface.co/Xenova/opus-mt-en-hi/resolve/main/onnx/decoder_model_merged_quantized.onnx",
+    "bytes": 58638488,
+    "sha256": "8baba43a14b15ca4543d30ab36e7d34f2e516fb9af7e0b83b77a5e6a6f66d198"
+  }
+]

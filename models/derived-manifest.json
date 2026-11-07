@@ -1,0 +1,7 @@
+{
+  "source": "kokoro-hf.fp16.onnx",
+  "sourceSha256": "ba4527a874b42b21e35f468c10d326fdff3c7fc8cac1f85e9eb6c0dfc35c334a",
+  "derived": "kokoro-cpu-fp32.onnx",
+  "derivedSha256": "6ef12275e5b019025c8a48d4c2b1b65f56c937e7340f2bd60c4d458b242ac6a8",
+  "change": "All FP16 tensors/value types and Cast-to-FP16 ops promoted to FP32 for CPU numerical stability. Does not recover upstream discarded precision."
+}

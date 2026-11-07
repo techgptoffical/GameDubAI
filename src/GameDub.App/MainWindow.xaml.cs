@@ -13,7 +13,9 @@ public partial class MainWindow : Window
 {
     private readonly AppSettings settings = AppSettings.Load();
     private readonly LocalWorker translationWorker = new("translate");
+    private readonly LocalWorker nllbWorker = new("translate-nllb");
     private readonly LocalWorker voiceWorker = new("tts");
+    private readonly LocalWorker gpuVoiceWorker = new("tts-dml");
     private readonly LocalWorker asrWorker = new("asr");
     private readonly WasapiPlayer audio = new();
     private readonly GameDuckingPlayer mixer;
@@ -71,10 +73,12 @@ public partial class MainWindow : Window
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            await Task.WhenAll(translationWorker.WarmAsync(timeout.Token), voiceWorker.WarmAsync(timeout.Token));
+            var translator=settings.Translator.StartsWith("Offline NLLB")?nllbWorker:translationWorker;
+            var tts=settings.Tts.Contains("GPU")?gpuVoiceWorker:voiceWorker;
+            await Task.WhenAll(translator.WarmAsync(timeout.Token), tts.WarmAsync(timeout.Token));
             Readiness.Text = "Local models ready • Windows subtitle OCR • selected-device WASAPI output";
             SetStatus("Ready. Try Voice lab, or open the subtitle demo."); StartButton.IsEnabled = true;
-            Json.Write(Path.Combine(Paths.Root, "startup-health.json"), new { at = DateTimeOffset.Now, ready = true, runtime = File.Exists(Path.Combine(Paths.Workspace, "runtime", "python.exe")) ? "bundled Python" : "project venv", translationMiB = translationWorker.WorkingSetBytes / 1048576.0, voiceMiB = voiceWorker.WorkingSetBytes / 1048576.0 });
+            Json.Write(Path.Combine(Paths.Root, "startup-health.json"), new { at = DateTimeOffset.Now, ready = true, runtime = File.Exists(Path.Combine(Paths.Workspace, "runtime", "python.exe")) ? "bundled Python" : "project venv",translationEngine=translator.Kind,voiceEngine=tts.Kind, translationMiB = translator.WorkingSetBytes / 1048576.0, voiceMiB = tts.WorkingSetBytes / 1048576.0 });
         }
         catch (Exception e)
         {
@@ -128,6 +132,7 @@ public partial class MainWindow : Window
             if (selector.ShowDialog() == true)
             {
                 profile.Region = selector.Region; ShowRegion();
+                var bounds=GameWindows.Bounds(game.Handle); profile.RegionReferenceWidth=bounds.Width; profile.RegionReferenceHeight=bounds.Height;
                 ProfileJson.Text = JsonSerializer.Serialize(profile, Json.Options);
                 Json.Write(Path.Combine(Paths.Profiles, profile.GameId + ".json"), profile);
             }
@@ -165,13 +170,14 @@ public partial class MainWindow : Window
         settings.DuckGameAudio = Ducking.IsChecked == true;
         audio.DeviceId = settings.OutputDevice; audio.Volume = settings.Volume;
         mixer.Enabled = settings.DuckGameAudio; mixer.Level = settings.DuckLevel;
-        EngineLabel.Text = settings.Tts.StartsWith("Kokoro") ? "Kokoro · local neural Hindi" : "eSpeak NG · robotic test fallback";
+        EngineLabel.Text = settings.Tts.StartsWith("Kokoro") ? settings.Tts.Contains("GPU")?"Kokoro · DirectML GPU, CPU fallback":"Kokoro · CPU neural Hindi" : "eSpeak NG · robotic test fallback";
     }
     private DubbingPipeline MakePipeline(GameProfile selectedProfile, int? budget = null)
     {
         ReadSettings();
         var ageBudget = settings.PerformanceMode switch { "Quality" => Math.Max(12000, settings.MaxAgeMs), "Performance" => Math.Min(4000, settings.MaxAgeMs), _ => Math.Max(8000, settings.MaxAgeMs) };
-        var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker), Providers.Voice(settings, voiceWorker), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
+        var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker,nllbWorker), Providers.Voice(settings, voiceWorker,gpuVoiceWorker,SetStatus), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
+        pipeline.Trace = diagnosticTrace;
         pipeline.Localized += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = LabHindi.Text = localized.Hindi; ReplayButton.IsEnabled = false; });
         pipeline.Playing += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = localized.Hindi; LineSource.Text = $"Speaking • {line.Speaker} • {localized.Source}"; });
         pipeline.Ready += (line, localized, clip) => Dispatcher.Invoke(() =>
@@ -199,14 +205,16 @@ public partial class MainWindow : Window
         var running = session = new CancellationTokenSource();
         try
         {
+            if(CaptureDiagnostics.IsChecked == true || Environment.GetCommandLineArgs().Contains("--diagnostic-session"))
+            { diagnosticTrace = new PipelineTrace(); DiagnosticPath.Text = diagnosticTrace.DirectoryPath; }
             var pipeline = MakePipeline(profile);
             var activeRouter = router = new DialogueRouter(pipeline, mixer, preserveLines: settings.PerformanceMode != "Performance", maxDelayMs: settings.PerformanceMode == "Quality" ? 12000 : 8000);
             activeRouter.Error += SetStatus;
             activeRouter.Status += SetStatus;
             if (automatic && game.ProcessId != Environment.ProcessId)
             {
-                var monitor = new HybridMonitor(asrWorker); monitor.Status += SetStatus;
-                await Task.Run(() => monitor.RunAsync(game, profile.Region!, activeRouter, running.Token));
+                var monitor = new HybridMonitor(asrWorker) { Trace=diagnosticTrace }; monitor.Status += SetStatus;
+                await Task.Run(() => monitor.RunAsync(game, profile.Region!, activeRouter, running.Token,profile));
             }
             else if (useAudio)
             {
@@ -215,9 +223,9 @@ public partial class MainWindow : Window
             }
             else
             {
-                var monitor = new SubtitleMonitor(); monitor.Status += SetStatus;
+                var monitor = new SubtitleMonitor() { Trace=diagnosticTrace }; monitor.Status += SetStatus;
                 SetStatus(game.ProcessId == Environment.ProcessId ? "TEST DEMO dubbing enabled. This targets the demo, not your game." : $"Dubbing enabled for {game.Title} ({game.Name}). Return to that game with English subtitles visible.");
-                await Task.Run(() => monitor.RunAsync(game, profile.Region!, activeRouter, running.Token));
+                await Task.Run(() => monitor.RunAsync(game, profile.Region!, activeRouter, running.Token,profile));
             }
         }
         catch (Exception error) { Fail(error); }
@@ -238,6 +246,7 @@ public partial class MainWindow : Window
         operation?.Cancel();
         var running = session; session = null; running?.Cancel();
         if (router is { } old) { router = null; await old.DisposeAsync(); }
+        diagnosticTrace?.Dispose(); diagnosticTrace = null;
         audio.Stop(); StartButton.IsEnabled = true; UpdateMetrics();
         // Session owner disposes its CTS only after capture exits; cancellation can still be observed.
     }
@@ -311,8 +320,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            var workers = new[] { translationWorker, voiceWorker, asrWorker }.Select(w => new { pid = w.ProcessId, workingSetMiB = w.WorkingSetBytes / 1048576.0 }).ToArray();
-            Json.Write(Path.Combine(Paths.Root, "diagnostics.json"), new { at = DateTimeOffset.Now, voiceLab = measurements, currentSession = currentPipeline?.Metrics.Snapshot(), modelWorkers = workers, note = "Only GameDub-owned workers. No command lines, FPS or acoustic measurement." });
+            var workers = new[] { translationWorker,nllbWorker, voiceWorker,gpuVoiceWorker, asrWorker }.Select(w => new { kind=w.Kind,pid = w.ProcessId, workingSetMiB = w.WorkingSetBytes / 1048576.0 }).ToArray();
+            Json.Write(Path.Combine(Paths.Root, "diagnostics.json"), new { at = DateTimeOffset.Now, voiceLab = measurements, currentSession = currentPipeline?.Metrics.Snapshot(), dropped=router?.DroppedCount,pending=router?.PendingCount, traceDirectory=diagnosticTrace?.DirectoryPath,traceError=diagnosticTrace?.Error,modelWorkers = workers, note = "Only GameDub-owned workers. No command lines, FPS or acoustic measurement." });
             SetStatus("Exported local-settings/diagnostics.json");
         }
         catch (Exception error) { Fail(error); }
@@ -324,7 +333,7 @@ public partial class MainWindow : Window
         targetLifetime.Cancel();
         e.Cancel = true;
         await StopAllAsync();
-        closing = true; demo?.Close(); translationWorker.Dispose(); voiceWorker.Dispose(); asrWorker.Dispose(); audio.Dispose();
+        closing = true; demo?.Close(); translationWorker.Dispose(); nllbWorker.Dispose(); voiceWorker.Dispose(); gpuVoiceWorker.Dispose(); asrWorker.Dispose(); audio.Dispose();
         // Closing can complete synchronously when idle. Queue the second Close until WPF has
         // returned from the cancelled Closing event, avoiding a reentrant-close exception.
         _ = Dispatcher.BeginInvoke(new Action(Close));

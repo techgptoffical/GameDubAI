@@ -1,0 +1,26 @@
+[
+  {
+    "file": "kokoro-hf.fp16.onnx",
+    "url": "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model_fp16.onnx?download=true",
+    "bytes": 163234740,
+    "sha256": "ba4527a874b42b21e35f468c10d326fdff3c7fc8cac1f85e9eb6c0dfc35c334a"
+  },
+  {
+    "file": "voices-v1.0.bin",
+    "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin",
+    "bytes": 28214398,
+    "sha256": "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"
+  },
+  {
+    "file": "translate-en_hi-1_1.argosmodel",
+    "url": "https://argos-net.com/v1/translate-en_hi-1_1.argosmodel",
+    "bytes": 106752178,
+    "sha256": "60470a003a9c7339db8c060ed8eafc7cf999ba90dfa5dceebd8d0a4f75f1d3f0"
+  },
+  {
+    "file": "vosk-model-small-en-us-0.15.zip",
+    "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+    "bytes": 41205931,
+    "sha256": "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498"
+  }
+]

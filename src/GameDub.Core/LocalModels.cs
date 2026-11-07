@@ -7,6 +7,7 @@ namespace GameDub.Core;
 
 public sealed class LocalWorker(string kind) : IDisposable
 {
+    public string Kind => kind;
     private Process? process;
     private readonly SemaphoreSlim gate = new(1);
     private bool disposed;
@@ -80,23 +81,20 @@ public sealed class LocalWorker(string kind) : IDisposable
     }
 }
 
-public sealed class OfflineLocalizer(LocalWorker worker) : ILocalizer
+public sealed class OfflineLocalizer(LocalWorker worker,int beamSize = 3) : ILocalizer
 {
-    private readonly List<DialogueSample> curated = Json.Samples();
     private readonly Dictionary<string, string> termTranslations = new();
-    public string Identity => "offline-marian-en-hi-onnx-int8:sentence-v1:curated-v2:glossary-v2";
+    public string Identity => worker.Kind == "translate-nllb" ? $"offline-nllb600m-ct2-int8:beam{beamSize}:noncommercial:no-fixtures-v3"
+        : File.Exists(Path.Combine(Paths.Workspace,"models/marian-ct2/model.bin")) ? "offline-marian-en-hi-ct2-int8:beam3:no-fixtures-v3:glossary-v2"
+        : "offline-marian-en-hi-onnx-int8:sentence-v1:no-fixtures-v3:glossary-v2";
     public async Task<LocalizedLine> TranslateAsync(Dialogue line, GameProfile profile, IReadOnlyList<string> history, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         var reviewed = profile.ReviewedLines.FirstOrDefault(p => Text.Key(p.Key) == Text.Key(line.Speaker + ": " + line.English));
         if (string.IsNullOrWhiteSpace(reviewed.Value)) reviewed = profile.ReviewedLines.FirstOrDefault(p => Text.Key(p.Key) == Text.Key(line.English));
         if (!string.IsNullOrWhiteSpace(reviewed.Value)) return new(reviewed.Value, line.Emotion, "game-profile-reviewed-line");
-        // Curated reference examples are explicit overrides, never passed off as MT model evaluations.
-        var exact = curated.Where(s => Text.Key(s.English) == Text.Key(line.English)).ToArray();
-        var sample = exact.FirstOrDefault(s => s.Context == line.Context) ?? (exact.Length == 1 ? exact[0] : null);
-        if (sample is not null) return new(await ApplyGlossaryAsync(line.English, sample.Hindi, profile, token), line.Emotion == "neutral" ? sample.Emotion : line.Emotion, "curated-dialogue-override");
         // The small MT model is sentence-based. It does not understand rolling story context or emotion.
-        using var result = await worker.RequestAsync(new { text = line.English }, token);
+        using var result = await worker.RequestAsync(new { text = line.English,beamSize }, token);
         var hindi = result.RootElement.GetProperty("hindi").GetString()?.Trim() ?? "";
         hindi = await ApplyGlossaryAsync(line.English, hindi, profile, token);
         if (string.IsNullOrWhiteSpace(hindi) || !hindi.Any(c => c is >= '\u0900' and <= '\u097F'))
@@ -129,15 +127,16 @@ public sealed class OfflineLocalizer(LocalWorker worker) : ILocalizer
 
 public sealed class KokoroVoice(LocalWorker worker, string mode = "Balanced") : IChunkedVoiceProvider
 {
-    public string Identity => "kokoro82m-v1-hf-promoted-fp32-hindi:sentences-v2:cpu2:" + mode;
+    public string Identity => "kokoro82m-v1-hf-promoted-fp32-hindi:sentences-v3-tail80ms:"+(worker.Kind=="tts-dml"?"dml-depthwise-repair-v1":"cpu2-arena")+":" + mode;
     public IReadOnlyList<LocalizedLine> DeliveryChunks(LocalizedLine line) => Regex.Split(line.Hindi.Trim(), @"(?<=[।.!?])\s+")
         .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => line with { Hindi = s }).ToArray();
     public async Task<AudioClip> SynthesizeAsync(LocalizedLine line, string voice, CancellationToken token)
     {
         if (!new[] { "hf_alpha", "hf_beta", "hm_omega", "hm_psi" }.Contains(voice)) voice = "hf_alpha";
         // Kokoro has no documented Hindi emotional acting controls. Only a restrained speed choice.
-        var speed = mode == "Performance" ? 1.05 : 1.0;
-        using var result = await worker.RequestAsync(new { text = line.Hindi, voice, speed }, token);
+        var speed = mode == "Performance" ? 1.15 : mode == "Balanced" ? 1.08 : 1.0;
+        var sentencePause=mode=="Quality"?.20:.12;
+        using var result = await worker.RequestAsync(new { text = line.Hindi, voice, speed,sentencePause }, token);
         return new(Convert.FromBase64String(result.RootElement.GetProperty("pcm").GetString()!),
             "pcm_" + result.RootElement.GetProperty("rate").GetInt32(), Identity);
     }
@@ -145,6 +144,12 @@ public sealed class KokoroVoice(LocalWorker worker, string mode = "Balanced") : 
 
 public static class Providers
 {
-    public static ILocalizer Localizer(AppSettings s, LocalWorker worker) => s.Translator.StartsWith("Local sample") ? new FixtureLocalizer() : new OfflineLocalizer(worker);
-    public static IVoiceProvider Voice(AppSettings s, LocalWorker worker) => s.Tts.StartsWith("eSpeak") ? new EspeakVoice() : new KokoroVoice(worker, s.PerformanceMode);
+    public static ILocalizer Localizer(AppSettings s, LocalWorker worker,LocalWorker? nllb = null) => s.Translator.StartsWith("Local sample") ? new FixtureLocalizer()
+        : new OfflineLocalizer(s.Translator.StartsWith("Offline NLLB") ? nllb ?? throw new InvalidOperationException("NLLB worker is unavailable") : worker,s.PerformanceMode=="Quality"?3:1);
+    public static IVoiceProvider Voice(AppSettings s, LocalWorker worker,LocalWorker? gpu = null,Action<string>? fallbackNotice = null)
+    {
+        IVoiceProvider voice=s.Tts.StartsWith("eSpeak") ? new EspeakVoice() : new KokoroVoice(worker,s.PerformanceMode);
+        if(s.Tts.Contains("GPU") && gpu is not null)voice=new FallbackVoice(new KokoroVoice(gpu,s.PerformanceMode),voice,fallbackNotice);
+        return new CachedVoice(voice);
+    }
 }

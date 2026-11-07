@@ -13,7 +13,16 @@ models/**/*.argosmodel
 models/translation/
 __pycache__/
 runtime/
+runtime-dml/
+models/marian-ct2/
+models/nllb-ct2/
 build/
 models/*.partial
 models/*.download
+models/vosk-model-small-en-us-0.15/
+models/marian-en-hi/*.spm
+models/marian-en-hi/tokenizer.json
+models/marian-en-hi/vocab.json
+.serena/
+research/sublens/
 models/**/*.zip

@@ -29,6 +29,8 @@ public static class GameWindows
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint hwnd, StringBuilder text, int capacity);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(nint hwnd, int attribute, out int value, int size);
     [DllImport("user32.dll")] public static extern bool IsIconic(nint hwnd);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    public static bool EscapeDown()=>(GetAsyncKeyState(0x1B)&0x8000)!=0;
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(nint hwnd);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int cx, int cy, uint flags);
     public static List<GameWindow> List()
@@ -109,11 +111,26 @@ public static class GameWindows
     }
 }
 
-public sealed class WindowsSubtitleOcr
+public sealed class WindowsSubtitleOcr(string style = "Raw", int requestedScale = 1)
 {
+    public string LastVariant { get; private set; } = "Raw";
     private readonly OcrEngine engine = OcrEngine.TryCreateFromLanguage(new Language("en-US"))
         ?? throw new InvalidOperationException("Windows English OCR is unavailable. Install the English OCR language feature in Windows Settings.");
     public async Task<string> RecognizeAsync(Bitmap bitmap, CancellationToken token)
+    {
+        var scale = requestedScale == 0 ? (bitmap.Height<140?2:1) : Math.Clamp(requestedScale,1,3);
+        scale=Math.Max(1,Math.Min(scale,(int)OcrEngine.MaxImageDimension/Math.Max(bitmap.Width,bitmap.Height)));
+        using var scaled=SubtitleImages.Scale(bitmap,scale);
+        if(style.Equals("Bright",StringComparison.OrdinalIgnoreCase))
+        { using var bright=SubtitleImages.BrightText(bitmap); using var large=SubtitleImages.Scale(bright,scale); LastVariant="Bright"; return await RecognizeRawAsync(large,token); }
+        var raw=await RecognizeRawAsync(scaled,token); LastVariant="Raw";
+        if(!style.Equals("Auto",StringComparison.OrdinalIgnoreCase)) return raw;
+        using var mask=SubtitleImages.BrightText(bitmap); using var bigMask=SubtitleImages.Scale(mask,scale);
+        var filtered=await RecognizeRawAsync(bigMask,token);
+        if(SubtitleImages.TextScore(filtered)>SubtitleImages.TextScore(raw)+3) { LastVariant="Bright"; return filtered; }
+        return raw;
+    }
+    private async Task<string> RecognizeRawAsync(Bitmap bitmap,CancellationToken token)
     {
         using var png = new MemoryStream();
         bitmap.Save(png, ImageFormat.Png);
@@ -134,17 +151,21 @@ public sealed class WindowsSubtitleOcr
 
 public sealed class SubtitleMonitor
 {
+    public PipelineTrace? Trace { get; set; }
     public event Action<string>? Status;
     public double LastOcrMs { get; private set; }
     public long OcrFrames { get; private set; }
-    public async Task RunAsync(GameWindow game, CaptureRegion region, IDialogueSink router, CancellationToken token)
+    public async Task RunAsync(GameWindow game, CaptureRegion region, IDialogueSink router, CancellationToken token, GameProfile? captureProfile = null)
     {
-        var ocr = new WindowsSubtitleOcr();
+        var originalRegion=region;
+        var ocr = new WindowsSubtitleOcr(captureProfile?.OcrStyle ?? "Raw",captureProfile?.OcrScale ?? 1);
         var detector = new SubtitleChangeDetector();
         var clock = Stopwatch.StartNew();
         ulong previousHash = 0;
         var previousText = "";
         var suspended = false;
+        var escapeWasDown=false;
+        var suppressUntil=TimeSpan.Zero;
         while (!token.IsCancellationRequested)
         {
             if (!GameWindows.IsAlive(game))
@@ -162,10 +183,22 @@ public sealed class SubtitleMonitor
             }
             if(suspended) Status?.Invoke("Watching the selected game • waiting for English subtitles in the chosen region");
             suspended = false;
+            var escapeDown=GameWindows.EscapeDown();
+            if(escapeDown && !escapeWasDown)
+            {
+                router.Interrupt(); detector=new(); previousText=""; previousHash=0;
+                suppressUntil=clock.Elapsed+TimeSpan.FromMilliseconds(250);
+                Trace?.Write("scene_interrupt",null,new { reason="game_escape_pause_or_skip", speechCancelled=true });
+                Status?.Invoke("Game pause/skip input • old speech and waiting dialogue cleared");
+            }
+            escapeWasDown=escapeDown;
+            if(clock.Elapsed<suppressUntil) { await Task.Delay(100,token); continue; }
             var bounds = GameWindows.Bounds(game.Handle);
+            region=SubtitleImages.Resolve(originalRegion,bounds.Width,bounds.Height,captureProfile);
             if (region.X < 0 || region.Y < 0 || region.Width < 20 || region.Height < 20 || region.X + region.Width > bounds.Width || region.Y + region.Height > bounds.Height)
             { router.Interrupt(); throw new InvalidOperationException("Subtitle region is outside the current window. Select it again after resizing the game."); }
             using var bitmap = new Bitmap(region.Width, region.Height, PixelFormat.Format32bppArgb);
+            var capturedAt = DateTimeOffset.UtcNow;
             using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(bounds.X + region.X, bounds.Y + region.Y, 0, 0, bitmap.Size);
             var hash = Fingerprint(bitmap);
             if (hash != previousHash)
@@ -176,13 +209,18 @@ public sealed class SubtitleMonitor
                 previousHash = hash;
             }
             var observation = detector.Observe(previousText, clock.Elapsed);
+            Trace?.Write("ocr", null, new { text = previousText, confidence = (double?)null, confidenceAvailable = false, ocrMs = LastOcrMs,
+                capturedAt, detectorEvent = observation.Event.ToString(), variant = ocr.LastVariant, region, clientWidth = bounds.Width, clientHeight = bounds.Height });
+            Trace?.Frame(bitmap,previousText,LastOcrMs);
             if (observation.Event == SubtitleEvent.Line)
             {
                 Status?.Invoke($"Subtitle detected • OCR {LastOcrMs:0} ms");
-                router.Submit(Text.Parse(observation.Text));
+                var line = Text.Parse(observation.Text) with { FirstSeenAt = capturedAt-(clock.Elapsed-observation.FirstSeen) };
+                Trace?.Write("detected",line,new { english = line.English, firstObservedAt = line.FirstSeenAt, stabilizationMs = (clock.Elapsed-observation.FirstSeen).TotalMilliseconds });
+                router.Submit(line);
             }
             else if (observation.Event == SubtitleEvent.Cleared) { router.SubtitleCleared(); Status?.Invoke("Waiting for next subtitle • current Hindi may finish within its time budget"); }
-            await Task.Delay(string.IsNullOrWhiteSpace(previousText) ? 200 : 100, token);
+            await Task.Delay(100, token);
         }
     }
     private static ulong Fingerprint(Bitmap bitmap)

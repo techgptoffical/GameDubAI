@@ -1,0 +1,51 @@
+{
+  "source": "kokoro-cpu-fp32.onnx",
+  "target": "kokoro-dml-fp32.onnx",
+  "sha256": "64429f757baa950fe754048a146ec247a7a943dcb3e526a90a22d22144f10896",
+  "rewrites": [
+    {
+      "node": "/encoder/F0.1/pool/ConvTranspose",
+      "group": 512,
+      "lengths": [
+        2,
+        7,
+        31
+      ],
+      "maxAbsErrors": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "node": "/encoder/N.1/pool/ConvTranspose",
+      "group": 512,
+      "lengths": [
+        2,
+        7,
+        31
+      ],
+      "maxAbsErrors": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "node": "/decoder/decoder/decode.3/pool/ConvTranspose",
+      "group": 1090,
+      "lengths": [
+        2,
+        7,
+        31
+      ],
+      "maxAbsErrors": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "license": "Apache-2.0 upstream model; local graph rewrite, no retraining",
+  "note": "Operator algebra verified; full GPU inference and human listening are separate tests"
+}
