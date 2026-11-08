@@ -1,7 +1,7 @@
 <Window x:Class="GameDub.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="GameDub AI" Width="900" Height="850" MinWidth="760" MinHeight="740" Background="#11151B" Foreground="#ECEFF4" FontFamily="Segoe UI" FontSize="14" Closing="Window_Closing">
  <Grid Margin="28,22">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <DockPanel><StackPanel><TextBlock Text="GameDub AI" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="English → Hindi · runs locally · no API accounts" Foreground="#9DA9BB" Margin="0,4,0,16"/></StackPanel><TextBlock Text="OFFLINE BUILD" Foreground="#83B4FF" HorizontalAlignment="Right" FontSize="11" Margin="0,10,0,0"/></DockPanel>
+  <DockPanel><StackPanel><TextBlock Text="GameDub AI" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="English → Hindi · local models, optional Gemini translation" Foreground="#9DA9BB" Margin="0,4,0,16"/></StackPanel><TextBlock x:Name="ModeBadge" Text="OFFLINE" Foreground="#83B4FF" HorizontalAlignment="Right" FontSize="11" Margin="0,10,0,0"/></DockPanel>
   <Border Grid.Row="1" Background="#1B2028" Padding="12,9" Margin="0,0,0,18"><TextBlock x:Name="Readiness" Text="Checking local models…" Foreground="#AABBD0"/></Border>
   <TabControl Grid.Row="2" Background="#11151B" BorderThickness="0" SelectionChanged="Tabs_Changed">
    <TabItem Header="Dubbing"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,18,0,10">
@@ -61,7 +61,7 @@
     <TextBlock Text="Audio output"/><ComboBox x:Name="Outputs" Margin="0,6,0,12"/>
     <TextBlock Text="Hindi volume"/><Slider x:Name="Volume" Minimum="0" Maximum="1" Value="0.7" Margin="0,8,0,12"/>
     <TextBlock Text="Translation"/><ComboBox x:Name="Translator" Margin="0,6,0,4"><ComboBoxItem Content="Gemini (cloud, best Hindi, needs internet + key)"/><ComboBoxItem Content="Conversational Hindi (local AI, recommended)"/><ComboBoxItem Content="Offline English → Hindi"/><ComboBoxItem Content="Offline NLLB Hindi (noncommercial research)"/><ComboBoxItem Content="Local sample fixtures (test only)"/></ComboBox>
-    <TextBlock Text="Conversational mode: local Gemma 4 E4B (Apache-2.0) on the GPU with scene context; lines failing the meaning check fall back to Marian. Marian is Apache-2.0; optional NLLB weights are CC-BY-NC-4.0 (noncommercial)." Foreground="#91A1B9" FontSize="12" Margin="0,0,0,8"/>
+    <TextBlock Text="Gemini: Google cloud model with scene context (needs your API key and internet). Conversational: local Gemma 4 E4B (Apache-2.0) on the GPU when memory allows. In both, lines failing the meaning check fall back to Marian. Marian is Apache-2.0; optional NLLB weights are CC-BY-NC-4.0 (noncommercial)." Foreground="#91A1B9" FontSize="12" Margin="0,0,0,8"/>
     <TextBlock Text="Gemini API key (from aistudio.google.com/apikey, free tier)"/>
     <DockPanel Margin="0,6,0,4"><Button Content="Remove" DockPanel.Dock="Right" Click="RemoveGeminiKey_Click" Margin="6,0,0,0"/><Button Content="Save key" DockPanel.Dock="Right" Click="SaveGeminiKey_Click" Margin="6,0,0,0"/><PasswordBox x:Name="GeminiKeyBox"/></DockPanel>
     <TextBlock x:Name="GeminiKeyState" Foreground="#91A1B9" FontSize="12"/>

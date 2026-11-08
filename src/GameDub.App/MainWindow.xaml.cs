@@ -53,6 +53,7 @@ public partial class MainWindow : Window
         initialized = true;
         InitializeV2Ui();
         ShowGeminiKeyState();
+        ModeBadge.Text = settings.Translator.StartsWith("Gemini") ? "GEMINI TRANSLATION (ONLINE)" : "OFFLINE";
         Loaded += async (_, _) =>
         {
             await RefreshGamesAsync();
@@ -238,6 +239,7 @@ public partial class MainWindow : Window
     private void ReadSettings()
     {
         settings.Translator = Selected(Translator); settings.Tts = Selected(Tts); settings.PerformanceMode = Selected(Mode);
+        ModeBadge.Text = settings.Translator.StartsWith("Gemini") ? "GEMINI TRANSLATION (ONLINE)" : "OFFLINE";
         settings.InputMode = Selected(InputMode);
         settings.DialoguePolicy = Selected(PolicyMode);
         settings.OutputDevice = (Outputs.SelectedItem as AudioDevice)?.Id ?? ""; settings.Volume = (float)Volume.Value;
