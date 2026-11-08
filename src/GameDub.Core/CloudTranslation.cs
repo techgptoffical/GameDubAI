@@ -148,7 +148,10 @@ public sealed class GeminiClient : IChatModel, IDisposable
         }
         if (status is 400 or 401 or 403 && Regex.IsMatch(body, "API_KEY_INVALID|API key not valid|PERMISSION_DENIED|API_KEY", RegexOptions.IgnoreCase))
         {
-            Pause(TimeSpan.FromMinutes(30), "Gemini rejected the API key. Check it in Settings; local translator meanwhile.");
+            // Say Google's own reason: a suspended Cloud project needs a different fix than a mistyped key.
+            Pause(TimeSpan.FromMinutes(30), (message.Contains("suspended", StringComparison.OrdinalIgnoreCase)
+                ? "Google has suspended the Google Cloud project of this Gemini key, so every key from it is refused. Create a key in a new project at aistudio.google.com/apikey and save it in Settings. Google said: "
+                : "Gemini rejected the API key; check it in Settings. Google said: ") + message + " — local translator meanwhile.");
             throw new InvalidOperationException("Gemini API key rejected: " + message);
         }
         if (status == 400) throw new GeminiBadRequest(message);
