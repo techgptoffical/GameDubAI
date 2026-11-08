@@ -9,10 +9,31 @@ internal static class DialogueRepairTests
         {
             var profile=new GameProfile { Glossary=new() { ["Help"]="सहायता" } };
             var hindi=ConversationalHindi.Adapt("कृपया सहायता करो। मुझे सहायता की आवश्यकता नहीं है। वास्तव में, 25 लोग कार्यालय में प्रतीक्षा कर रहे हैं।",profile);
-            Check(hindi.Contains("प्लीज़")&&hindi.Contains("ज़रूरत नहीं है")&&hindi.Contains("25")&&hindi.Contains("ऑफ़िस")&&hindi.Contains("इंतज़ार"),"Register edit lost facts or did not simplify wording");
+            Check(hindi.Contains("प्लीज़")&&hindi.Contains("ज़रूरत नहीं है")&&hindi.Contains("25")&&hindi.Contains("ऑफ़िस")&&hindi.Contains("इंतज़ार"),"Register edit lost facts or did not simplify wording: "+hindi);
             Check(hindi.Contains("सहायता"),"User glossary was rewritten");
             profile.Glossary.Clear();Check(ConversationalHindi.Adapt("मैंने प्रयास किया, लेकिन वह कदापि नहीं आया।",profile)=="मैंने कोशिश की, लेकिन वह बिल्कुल नहीं आया।","Grammar or negation changed");
             profile.ConversationalHindi=false;Check(ConversationalHindi.Adapt("कृपया प्रतीक्षा करें।",profile)=="कृपया प्रतीक्षा करें।","Style opt-out ignored");
+            return Task.CompletedTask;
+        });
+        await test("conversational meaning guard rejects lost negation, numbers, Latin leaks and mixed address forms",()=>
+        {
+            Check(ConversationalLocalizer.Validate("Don't touch anything.","कुछ छूना।") is not null,"Lost negation accepted");
+            Check(ConversationalLocalizer.Validate("Don't touch anything.","कुछ भी मत छूना।") is null,"Valid negation rejected");
+            Check(ConversationalLocalizer.Validate("We split it 60-40 at 9.","हम 9 बजे बाँटेंगे।") is not null,"Lost number accepted");
+            Check(ConversationalLocalizer.Validate("Who sold us out?","किसने हमें बे sold किया?") is not null,"Latin leak accepted");
+            Check(ConversationalLocalizer.CheckRegister("तू मेरी बात सुन, तुम्हारा क्या जाता है?",null) is not null,"Mixed तू/तुम accepted");
+            Check(ConversationalLocalizer.CheckRegister("तू मेरी बात सुन, तेरा क्या जाता है?","tum") is null,"Consistent line rejected");
+            Check(ConversationalLocalizer.Clean("Hindi: \"चलो निकलते हैं।\"\n(note)")=="चलो निकलते हैं।","Commentary not stripped");
+            var profile=new GameProfile();
+            Check(ConversationalHindi.Adapt("हमें प्रतीक्षा करनी होगी।",profile)=="हमें प्रतीक्षा करनी होगी।","Gender-changing swap broke grammar");
+            return Task.CompletedTask;
+        });
+        await test("speaker gender reaches the localiser only from the character voice mapping",()=>
+        {
+            var profile=new GameProfile { GameId="GTA5_Enhanced",Voices=new() { ["Amanda"]="hf_beta" } };
+            var localizer=new ConversationalLocalizer(new LlamaServer(),new FixtureLocalizer());
+            Check(localizer.BuildPrompt(new("I'm done.","Amanda"),profile,[]).Contains("female"),"Mapped female speaker not passed");
+            Check(!localizer.BuildPrompt(new("I'm done.","Unknown"),profile,[]).Contains("male"),"Gender guessed for unknown speaker");
             return Task.CompletedTask;
         });
         await test("long Hindi delivery retains every word in bounded clauses",()=>

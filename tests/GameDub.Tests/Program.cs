@@ -100,6 +100,33 @@ async Task Test(string name, Func<Task> body)
 void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 var testRoot = Path.Combine(Paths.Workspace, "artifacts", "tests", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
 Directory.CreateDirectory(testRoot);
+if (args.Contains("--hindi-benchmark"))
+{
+    // 60 unseen game lines (research/translation-benchmark/lines.json, never read by the app):
+    // current Marian sentence MT vs the conversational LLM localiser, actual outputs for review.
+    var lines = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(Paths.Workspace,"research","translation-benchmark","lines.json"))).RootElement.EnumerateArray()
+        .Select(e => (Id: e.GetProperty("id").GetString()!, Speaker: e.GetProperty("speaker").GetString()!, Category: e.GetProperty("category").GetString()!, English: e.GetProperty("english").GetString()!)).ToArray();
+    using var marianWorker = new LocalWorker("translate"); using var server = new LlamaServer();
+    var marian = new OfflineLocalizer(marianWorker, 1); var llmLocalizer = new ConversationalLocalizer(server, marian, true);
+    var profile = new GameProfile { GameId = "GTA5_Enhanced" };
+    var load = Stopwatch.StartNew(); await server.EnsureStartedAsync(default); var loadMs = load.Elapsed.TotalMilliseconds;
+    await llmLocalizer.TranslateAsync(new("Okay."), profile, [], default); await marianWorker.WarmAsync(default);
+    var rows = new List<object>(); var mt = new List<double>(); var ai = new List<double>();
+    foreach (var l in lines)
+    {
+        var line = new Dialogue(l.English, l.Speaker);
+        var w = Stopwatch.StartNew(); var before = await marian.TranslateAsync(line, profile, [], default); mt.Add(w.Elapsed.TotalMilliseconds);
+        w.Restart(); var after = await llmLocalizer.TranslateAsync(line, profile, [], default); ai.Add(w.Elapsed.TotalMilliseconds);
+        rows.Add(new { l.Id, l.Speaker, l.Category, l.English, marian = before.Hindi, conversational = after.Hindi, meaning = llmLocalizer.LastMeaning, source = after.Source, marianMs = mt[^1], conversationalMs = ai[^1] });
+        Console.WriteLine($"{l.Id} {ai[^1],6:0} ms  {after.Hindi}  [{(after.Source.Contains("rejected") ? after.Source : llmLocalizer.LastMeaning)}]");
+    }
+    double P(List<double> v, double q) { var o = v.OrderBy(x => x).ToArray(); return o[(int)Math.Min(o.Length - 1, Math.Floor(q * o.Length))]; }
+    var outDir = Path.Combine(Paths.Workspace, "artifacts", "translation-benchmark"); Directory.CreateDirectory(outDir);
+    Json.Write(Path.Combine(outDir, "conversational-vs-marian.json"), new { model = server.ModelName, prompt = ConversationalLocalizer.PromptVersion, loadMs, serverWorkingSetMiB = server.WorkingSetBytes / 1048576.0,
+        marianP50 = P(mt, .5), marianP95 = P(mt, .95), conversationalP50 = P(ai, .5), conversationalP95 = P(ai, .95), fallbacks = llmLocalizer.Fallbacks, rows });
+    Console.WriteLine($"Marian p50 {P(mt,.5):0} ms p95 {P(mt,.95):0} • conversational p50 {P(ai,.5):0} ms p95 {P(ai,.95):0} • fallbacks {llmLocalizer.Fallbacks}/{lines.Length} • load {loadMs:0} ms");
+    return 0;
+}
 if (args.Contains("--ocr"))
 {
     await OcrLayoutTests.Run(testRoot, Test);

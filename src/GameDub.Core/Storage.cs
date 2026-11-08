@@ -19,7 +19,7 @@ public static class Paths
 
 public sealed class AppSettings
 {
-    public string Translator { get; set; } = "Offline English → Hindi";
+    public string Translator { get; set; } = "Conversational Hindi (local AI, recommended)";
     public string Tts { get; set; } = "Kokoro Hindi (local neural)";
     public string OutputDevice { get; set; } = "";
     public float Volume { get; set; } = 0.7f;

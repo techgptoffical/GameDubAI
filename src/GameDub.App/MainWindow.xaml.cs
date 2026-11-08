@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     private readonly LocalWorker voiceWorker = new("tts");
     private readonly LocalWorker gpuVoiceWorker = new("tts-dml");
     private readonly LocalWorker asrWorker = new("asr");
+    private readonly LlamaServer llm = new();
     private readonly WasapiPlayer audio = new();
     private readonly GameDuckingPlayer mixer;
     private GameProfile profile = new() { DefaultVoice = "hm_omega" };
@@ -73,7 +74,16 @@ public partial class MainWindow : Window
         SetStatus("Loading offline translation and Hindi voice models…");
         try
         {
+            if(settings.Translator.StartsWith("Conversational"))
+            {
+                // Started first and alone: the 4 GB GPU model load should not overlap other model loads.
+                if(!LlamaServer.Available) { settings.Translator="Offline English → Hindi";SelectCombo(Translator,settings.Translator);SetStatus("Conversational Hindi model is not installed; using the offline Marian translator."); }
+                else try { SetStatus("Loading conversational Hindi model on the GPU…");using var llmTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(150));await llm.EnsureStartedAsync(llmTimeout.Token); }
+                catch(Exception failure)
+                { settings.Translator="Offline English → Hindi";SelectCombo(Translator,settings.Translator);SetStatus("Conversational Hindi model could not start; using Marian. "+failure.Message); }
+            }
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            // Marian stays warm in Conversational mode as the meaning-guard fallback.
             var translator=settings.Translator.StartsWith("Offline NLLB")?nllbWorker:translationWorker;
             var tts=settings.Tts.Contains("GPU")?gpuVoiceWorker:voiceWorker;
             // Sequential initialization avoids overlapping model-load allocation peaks on 16GB PCs.
@@ -187,7 +197,7 @@ public partial class MainWindow : Window
     {
         ReadSettings();
         var ageBudget = settings.PerformanceMode switch { "Quality" => Math.Max(12000, settings.MaxAgeMs), "Performance" => Math.Min(4000, settings.MaxAgeMs), _ => Math.Max(8000, settings.MaxAgeMs) };
-        var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker,nllbWorker), Providers.Voice(settings, voiceWorker,gpuVoiceWorker,SetStatus), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
+        var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker,nllbWorker,llm), Providers.Voice(settings, voiceWorker,gpuVoiceWorker,SetStatus), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
         pipeline.Trace = diagnosticTrace;
         pipeline.Localized += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = LabHindi.Text = localized.Hindi; ReplayButton.IsEnabled = false; });
         pipeline.Playing += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = localized.Hindi; LineSource.Text = $"Speaking • {line.Speaker} • {localized.Source}"; });
@@ -347,7 +357,7 @@ public partial class MainWindow : Window
         targetLifetime.Cancel();
         e.Cancel = true;
         await StopAllAsync();
-        closing = true; historyWatch.Stop();eventStore?.Dispose();demo?.Close(); translationWorker.Dispose(); nllbWorker.Dispose(); voiceWorker.Dispose(); gpuVoiceWorker.Dispose(); asrWorker.Dispose(); audio.Dispose();
+        closing = true; historyWatch.Stop();eventStore?.Dispose();demo?.Close(); translationWorker.Dispose(); nllbWorker.Dispose(); voiceWorker.Dispose(); gpuVoiceWorker.Dispose(); asrWorker.Dispose(); llm.Dispose(); audio.Dispose();
         // Closing can complete synchronously when idle. Queue the second Close until WPF has
         // returned from the cancelled Closing event, avoiding a reentrant-close exception.
         _ = Dispatcher.BeginInvoke(new Action(Close));

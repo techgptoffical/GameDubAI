@@ -2,15 +2,18 @@ using System.Text.RegularExpressions;
 
 namespace GameDub.Core;
 
+// Fallback-only safety net for the sentence MT path: conservative, gender-preserving vocabulary swaps.
+// Not a localiser; the conversational LLM path does the real register work.
 // Conservative vocabulary/register edits, not a second translator. Never remove
 // clauses, negation, numbers, or replace a user's protected names/glossary terms.
 public static class ConversationalHindi
 {
-    public const string Version="conversational-v1";
+    public const string Version="conversational-v2";
     private static readonly Dictionary<string,string> Phrases=new()
     {
         ["कृपया"]="प्लीज़",["धन्यवाद"]="शुक्रिया",["क्षमा करें"]="माफ़ करें",["क्षमा करो"]="माफ़ करो",
-        ["प्रतीक्षा"]="इंतज़ार",["सहायता"]="मदद",["सहायताओं"]="मददों",
+        // Only swaps that keep grammatical gender and class (प्रतीक्षा→इंतज़ार changes gender, so phrase-level only).
+        ["प्रतीक्षा करें"]="इंतज़ार करें",["प्रतीक्षा करो"]="इंतज़ार करो",["प्रतीक्षा कर रहे"]="इंतज़ार कर रहे",["प्रतीक्षा कर रहा"]="इंतज़ार कर रहा",["सहायता"]="मदद",
         ["आवश्यकताओं"]="ज़रूरतों",["आवश्यकताएँ"]="ज़रूरतें",["आवश्यकताएं"]="ज़रूरतें",["आवश्यकता"]="ज़रूरत",["आवश्यक"]="ज़रूरी",
         ["शीघ्र"]="जल्दी",["अवश्य"]="ज़रूर",["अत्यंत"]="बहुत",["अधिकांश"]="ज़्यादातर",
         ["वास्तव में"]="सच में",["प्रयास किया"]="कोशिश की",["प्रयास करो"]="कोशिश करो",["प्रयास करें"]="कोशिश करें",["प्रयास करना"]="कोशिश करना",

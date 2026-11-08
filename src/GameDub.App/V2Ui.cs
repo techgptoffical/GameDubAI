@@ -152,7 +152,7 @@ public partial class MainWindow
         try
         {
             ReadSettings();mixer.ProcessId=0;
-            var localized=string.IsNullOrWhiteSpace(item.Hindi)?await Providers.Localizer(settings,translationWorker,nllbWorker).TranslateAsync(item.ToDialogue(),profile,[],run.Token):new LocalizedLine(item.Hindi,"neutral",item.TranslationSource);
+            var localized=string.IsNullOrWhiteSpace(item.Hindi)?await Providers.Localizer(settings,translationWorker,nllbWorker,llm).TranslateAsync(item.ToDialogue(),profile,[],run.Token):new LocalizedLine(item.Hindi,"neutral",item.TranslationSource);
             var voiceId=profile.VoiceFor(item.Speaker);if(!CharacterVoices.IsKnownVoice(voiceId))voiceId=item.VoiceId;
             var provider=Providers.Voice(settings,voiceWorker,gpuVoiceWorker,SetStatus);
             var key=TranslationTextCache.Hash(localized.Hindi+"|"+voiceId+"|"+provider.Identity);

@@ -144,8 +144,15 @@ public sealed class KokoroVoice(LocalWorker worker, string mode = "Balanced") : 
 
 public static class Providers
 {
-    public static ILocalizer Localizer(AppSettings s, LocalWorker worker,LocalWorker? nllb = null) => s.Translator.StartsWith("Local sample") ? new FixtureLocalizer()
-        : new OfflineLocalizer(s.Translator.StartsWith("Offline NLLB") ? nllb ?? throw new InvalidOperationException("NLLB worker is unavailable") : worker,s.PerformanceMode=="Quality"?3:1);
+    public const string ConversationalTranslator = "Conversational Hindi (local AI, recommended)";
+    public static ILocalizer Localizer(AppSettings s, LocalWorker worker,LocalWorker? nllb = null,LlamaServer? llm = null)
+    {
+        if(s.Translator.StartsWith("Local sample")) return new FixtureLocalizer();
+        var mt = new OfflineLocalizer(s.Translator.StartsWith("Offline NLLB") ? nllb ?? throw new InvalidOperationException("NLLB worker is unavailable") : worker,s.PerformanceMode=="Quality"?3:1);
+        // Conversational mode: LLM localisation, with the sentence MT model as the meaning-guard fallback.
+        return s.Translator.StartsWith("Conversational") && llm is not null && LlamaServer.Available
+            ? new ConversationalLocalizer(llm,new OfflineLocalizer(worker,1),!s.DialoguePolicy.StartsWith("Story")) : mt;
+    }
     public static IVoiceProvider Voice(AppSettings s, LocalWorker worker,LocalWorker? gpu = null,Action<string>? fallbackNotice = null)
     {
         IVoiceProvider voice=s.Tts.StartsWith("eSpeak") ? new EspeakVoice() : new KokoroVoice(worker,s.PerformanceMode);
