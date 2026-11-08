@@ -99,6 +99,7 @@ public partial class MainWindow
             catch (Exception error) { profile = new() { GameId = id, DefaultVoice = "hm_omega" }; Fail(error); }
         }
         if(CharacterVoices.MigrateKnownGame(profile))SaveVoiceProfile();
+        if(SubtitleImages.RepairClippedGameRegion(profile))SaveVoiceProfile();
         OpenDialogueHistory();
         ProfileJson.Text = JsonSerializer.Serialize(profile, Json.Options);
         ShowRegion(); ShowTarget();

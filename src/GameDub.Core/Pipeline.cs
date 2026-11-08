@@ -305,7 +305,7 @@ public sealed class SubtitleChangeDetector
     public SubtitleObservation Observe(string raw, TimeSpan now)
     {
         var text = Text.Clean(raw);
-        if (new[] { "paused", "loading", "loading...", "saving...", "game paused", "press any key" }.Contains(text.ToLowerInvariant())) text = "";
+        if (SubtitleUiFilter.IsControlText(text)) text = "";
         if (text.Length < 3 || text.Count(char.IsLetter) < 2)
         {
             candidate = ""; repeats = 0;

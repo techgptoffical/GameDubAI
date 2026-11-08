@@ -84,9 +84,9 @@ public sealed class LocalWorker(string kind) : IDisposable
 public sealed class OfflineLocalizer(LocalWorker worker,int beamSize = 3) : ILocalizer
 {
     private readonly Dictionary<string, string> termTranslations = new();
-    public string Identity => worker.Kind == "translate-nllb" ? $"offline-nllb600m-ct2-int8:beam{beamSize}:noncommercial:no-fixtures-v3"
+    public string Identity => (worker.Kind == "translate-nllb" ? $"offline-nllb600m-ct2-int8:beam{beamSize}:noncommercial:no-fixtures-v3"
         : File.Exists(Path.Combine(Paths.Workspace,"models/marian-ct2/model.bin")) ? "offline-marian-en-hi-ct2-int8:beam3:no-fixtures-v3:glossary-v2"
-        : "offline-marian-en-hi-onnx-int8:sentence-v1:no-fixtures-v3:glossary-v2";
+        : "offline-marian-en-hi-onnx-int8:sentence-v1:no-fixtures-v3:glossary-v2")+":long-source-v2:"+ConversationalHindi.Version;
     public async Task<LocalizedLine> TranslateAsync(Dialogue line, GameProfile profile, IReadOnlyList<string> history, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
@@ -96,6 +96,7 @@ public sealed class OfflineLocalizer(LocalWorker worker,int beamSize = 3) : ILoc
         // The small MT model is sentence-based. It does not understand rolling story context or emotion.
         using var result = await worker.RequestAsync(new { text = line.English,beamSize }, token);
         var hindi = result.RootElement.GetProperty("hindi").GetString()?.Trim() ?? "";
+        hindi = ConversationalHindi.Adapt(hindi,profile);
         hindi = await ApplyGlossaryAsync(line.English, hindi, profile, token);
         if (string.IsNullOrWhiteSpace(hindi) || !hindi.Any(c => c is >= '\u0900' and <= '\u097F'))
             throw new InvalidDataException("Offline translator did not produce Hindi. Line dropped.");
@@ -127,9 +128,8 @@ public sealed class OfflineLocalizer(LocalWorker worker,int beamSize = 3) : ILoc
 
 public sealed class KokoroVoice(LocalWorker worker, string mode = "Balanced") : IChunkedVoiceProvider
 {
-    public string Identity => "kokoro82m-v1-hf-promoted-fp32-hindi:sentences-v3-tail80ms:"+(worker.Kind=="tts-dml"?"dml-depthwise-repair-v1":"cpu2-arena")+":" + mode;
-    public IReadOnlyList<LocalizedLine> DeliveryChunks(LocalizedLine line) => Regex.Split(line.Hindi.Trim(), @"(?<=[।.!?])\s+")
-        .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => line with { Hindi = s }).ToArray();
+    public string Identity => "kokoro82m-v1-hf-promoted-fp32-hindi:clauses140-v4-tail80ms:"+(worker.Kind=="tts-dml"?"dml-depthwise-repair-v1":"cpu2-arena")+":" + mode;
+    public IReadOnlyList<LocalizedLine> DeliveryChunks(LocalizedLine line) => SpeechDelivery.Chunks(line);
     public async Task<AudioClip> SynthesizeAsync(LocalizedLine line, string voice, CancellationToken token)
     {
         if (!new[] { "hf_alpha", "hf_beta", "hm_omega", "hm_psi" }.Contains(voice)) voice = "hf_alpha";

@@ -20,16 +20,18 @@ public partial class MainWindow
         {
             mixer.ProcessId=0;
             var pipeline=MakePipeline(profile,12000);
-            await using var replayRouter=new DialogueRouter(pipeline,mixer,true,12000);
+            OpenDialogueHistory();
+            await using var replayRouter=new StoryDialogueScheduler(pipeline,eventStore!);
+            router=replayRouter;
             replayRouter.Error+=SetStatus; replayRouter.Status+=SetStatus;
             SetStatus("Replaying captured OCR timing locally • no game capture or new screenshots");
             await DiagnosticReplay.ReplayOcrAsync(directory,replayRouter,run.Token);
             await replayRouter.WaitForIdleAsync(run.Token);
-            SetStatus($"Replay finished • {pipeline.Metrics.Snapshot().Length} playback starts • {replayRouter.DroppedCount} dropped. {directory}");
+            SetStatus($"Replay finished • {pipeline.Metrics.Snapshot().Length} playback starts • {replayRouter.DroppedCount} unspoken; history retained. {directory}");
             UpdateMetrics();
         }
         catch(Exception error) { Fail(error); }
-        finally { if(operation==run) operation=null; run.Dispose(); }
+        finally { if(operation==run) { operation=null;router=null; } run.Dispose(); }
     }
     private async void RecheckCrops_Click(object sender,RoutedEventArgs e)
     {

@@ -50,7 +50,7 @@ public sealed class DialogueCache
     }
     public static string Identity(Dialogue line, GameProfile profile, string localizer, string tts, string voice, IReadOnlyList<string> history)
     {
-        var payload = JsonSerializer.Serialize(new { version = 4, line.English, line.Speaker, line.Emotion, line.Context, line.DurationSeconds, profile.GameId, profile.Setting, profile.Glossary, profile.Relationships, profile.ReviewedLines, localizer, tts, voice, history });
+        var payload = JsonSerializer.Serialize(new { version = 5, line.English, line.Speaker, line.Emotion, line.Context, line.DurationSeconds, profile.GameId, profile.Setting, profile.Glossary, profile.Relationships, profile.ReviewedLines,profile.ConversationalHindi, localizer, tts, voice, history });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
     public (LocalizedLine Line, AudioClip Clip)? Get(string key)

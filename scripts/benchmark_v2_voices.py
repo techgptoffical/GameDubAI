@@ -9,7 +9,8 @@ process=psutil.Process();process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
 def deny_network(event,args):
     if event=='socket.connect':raise PermissionError('Offline voice benchmark: no network connections')
 sys.addaudithook(deny_network)
-parser=argparse.ArgumentParser();parser.add_argument('--chatterbox',action='store_true');parser.add_argument('--kokoro',action='store_true');parser.add_argument('--gpu',action='store_true');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--chatterbox',action='store_true');parser.add_argument('--kokoro',action='store_true');parser.add_argument('--gpu',action='store_true');parser.add_argument('--dml',action='store_true');parser.add_argument('--limit',type=int,default=5);args=parser.parse_args()
+if args.dml:sys.path.insert(0,str(ROOT/'runtime-dml'))
 out=ROOT/'artifacts/v2-voices';out.mkdir(parents=True,exist_ok=True)
 lines=[('calm','तुम आ गए। मुझे लगा था अब हम कभी नहीं मिलेंगे।'),('urgent','जल्दी करो! वे लोग किसी भी वक्त यहाँ आ सकते हैं।'),('sad','मैंने उस पर भरोसा किया था, और उसने मुझे धोखा दिया।'),('question','माइकल, क्या तुम सच में वहाँ अकेले जाने वाले हो?'),('sarcasm','वाह, कमाल का प्लान है। अब हम सब फँस गए हैं।')]
 rows=[];before=psutil.virtual_memory().available;start=time.perf_counter()
@@ -23,8 +24,8 @@ try:
             return np.frombuffer(base64.b64decode(result['pcm']),dtype='<i2').astype('float32')/32767,result['rate'],dict(streaming=False,exaggeration=None)
     elif args.chatterbox:
         from chatterbox_onnx import ChatterboxOnnx
-        model=ChatterboxOnnx(ROOT/'models/chatterbox-onnx');load=time.perf_counter()-start
-        voices=['builtin'];engine='Chatterbox Multilingual ONNX Q4 CPU2'
+        model=ChatterboxOnnx(ROOT/'models/chatterbox-onnx','dml' if args.dml else 'cpu');load=time.perf_counter()-start
+        voices=['builtin'];engine='Chatterbox Multilingual ONNX Q4 '+('DML vocoder + CPU2 language model' if args.dml else 'CPU2')
         def synth(text,voice,category):return model.synthesize(text,exaggeration=.7 if category=='urgent' else .5)
     else:
         import onnxruntime as ort
@@ -40,11 +41,11 @@ try:
         load=time.perf_counter()-start;voices=list(models);engine='Piper 1.8 medium CPU2'
         def synth(text,voice,category):
             chunks=list(models[voice].synthesize(text));audio=np.concatenate([c.audio_float_array for c in chunks]);return audio,chunks[0].sample_rate,dict(streaming='sentence chunks supported; this benchmark collects the full utterance',exaggeration=None)
-    for category,text in lines:
+    for category,text in lines[:max(1,min(5,args.limit))]:
         for voice in voices:
             started=time.perf_counter();audio,rate,details=synth(text,voice,category);ms=(time.perf_counter()-started)*1000
             if not np.isfinite(audio).all() or not len(audio):raise RuntimeError('Nonfinite or empty samples')
-            file=('kokoro-' if args.kokoro else 'chatterbox-' if args.chatterbox else 'piper-')+voice+'-'+category+'.wav'
+            file=('kokoro-' if args.kokoro else 'chatterbox-'+('dml-' if args.dml else '') if args.chatterbox else 'piper-')+voice+'-'+category+'.wav'
             with wave.open(str(out/file),'wb') as target:
                 target.setnchannels(1);target.setsampwidth(2);target.setframerate(rate);target.writeframes((np.clip(audio,-1,1)*32767).astype('<i2').tobytes())
             row=dict(file=file,text=text,category=category,voice=voice,fullGenerationMs=ms,audioSeconds=len(audio)/rate,rssMiB=process.memory_info().rss/1048576,naturalness=None,pronunciation=None,expressiveness=None,details=details)
@@ -54,4 +55,4 @@ except Exception as error:
     report=dict(error=repr(error),samples=rows,availableRamBeforeMiB=before/1048576)
     raise
 finally:
-    (out/('kokoro-'+('gpu' if args.gpu else 'cpu')+'.json' if args.kokoro else 'chatterbox.json' if args.chatterbox else 'piper.json')).write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+    (out/('kokoro-'+('gpu' if args.gpu else 'cpu')+'.json' if args.kokoro else 'chatterbox-'+('dml' if args.dml else 'cpu')+'.json' if args.chatterbox else 'piper.json')).write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

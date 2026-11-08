@@ -61,7 +61,7 @@
     <TextBlock Text="Audio output"/><ComboBox x:Name="Outputs" Margin="0,6,0,12"/>
     <TextBlock Text="Hindi volume"/><Slider x:Name="Volume" Minimum="0" Maximum="1" Value="0.7" Margin="0,8,0,12"/>
     <TextBlock Text="Translation"/><ComboBox x:Name="Translator" Margin="0,6,0,4"><ComboBoxItem Content="Offline English → Hindi"/><ComboBoxItem Content="Offline NLLB Hindi (noncommercial research)"/><ComboBoxItem Content="Local sample fixtures (test only)"/></ComboBox>
-    <TextBlock Text="Marian is Apache-2.0. Optional NLLB weights are CC-BY-NC-4.0, for noncommercial use." Foreground="#91A1B9" FontSize="12" Margin="0,0,0,12"/>
+    <TextBlock Text="Everyday Hindi vocabulary is on by default. Translation can still get slang and meaning wrong. Marian is Apache-2.0; optional NLLB weights are CC-BY-NC-4.0, for noncommercial use." Foreground="#91A1B9" FontSize="12" Margin="0,0,0,12"/>
     <TextBlock Text="Voice synthesis"/><ComboBox x:Name="Tts" Margin="0,6,0,6"><ComboBoxItem Content="Kokoro Hindi (local neural)"/><ComboBoxItem Content="Kokoro Hindi GPU (DirectML + CPU fallback)"/><ComboBoxItem Content="eSpeak NG (offline test)"/></ComboBox>
     <CheckBox x:Name="Ducking" Content="Duck only selected game's full audio mix during Hindi (restore afterward)"/>
     <TextBlock Text="No voice isolation. No microphone or paid providers. The selected game alone is attenuated to 30%; unrelated audio is untouched." Foreground="#91A1B9" FontSize="12"/>

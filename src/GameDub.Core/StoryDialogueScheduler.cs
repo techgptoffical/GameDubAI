@@ -269,7 +269,7 @@ public sealed class TranslationTextCache(string directory)
 {
     private static readonly object gate=new();
     public static string Hash(string text)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
-    public static string Identity(Dialogue line,GameProfile profile,string engine,IReadOnlyList<string> history)=>Hash(JsonSerializer.Serialize(new { line.English,line.Speaker,line.Context,profile.Glossary,profile.ReviewedLines,engine,history }));
+    public static string Identity(Dialogue line,GameProfile profile,string engine,IReadOnlyList<string> history)=>Hash(JsonSerializer.Serialize(new { line.English,line.Speaker,line.Context,profile.Glossary,profile.ReviewedLines,profile.ConversationalHindi,engine,history }));
     public LocalizedLine? Get(string key)
     {
         lock(gate)try { var path=Path.Combine(directory,key+".json");if(!File.Exists(path))return null;return Json.Read<LocalizedLine>(path); } catch(Exception e)when(e is IOException or JsonException) { return null; }

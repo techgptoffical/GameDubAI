@@ -644,6 +644,7 @@ if (args.Contains("--duck"))
     });
 }
 await V2Acceptance.Run(testRoot,Test);
+await DialogueRepairTests.Run(testRoot,Test);
 Json.Write(Path.Combine(testRoot, "results.json"), results);
 Console.WriteLine($"{results.Count-failed}/{results.Count} passed; results: {testRoot}");
 return failed == 0 ? 0 : 1;

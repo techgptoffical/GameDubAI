@@ -31,7 +31,9 @@ public sealed class GameProfile
     public CaptureRegion? Region { get; set; }
     public int RegionReferenceWidth { get; set; }
     public int RegionReferenceHeight { get; set; }
+    public int CaptureSchemaVersion { get; set; }
     public string OcrStyle { get; set; } = "Raw";
+    public bool ConversationalHindi { get; set; } = true;
     public int OcrScale { get; set; } = 1;
     public string VoiceFor(string speaker) => Characters.FirstOrDefault(p=>p.Key.Equals(speaker,StringComparison.OrdinalIgnoreCase)).Value?.VoiceId
         ?? Voices.FirstOrDefault(p=>p.Key.Equals(speaker,StringComparison.OrdinalIgnoreCase)).Value ?? DefaultVoice;

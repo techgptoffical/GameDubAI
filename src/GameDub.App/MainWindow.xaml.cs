@@ -141,6 +141,7 @@ public partial class MainWindow : Window
             if (selector.ShowDialog() == true)
             {
                 profile.Region = selector.Region; ShowRegion();
+                profile.CaptureSchemaVersion=1;
                 var bounds=GameWindows.Bounds(game.Handle); profile.RegionReferenceWidth=bounds.Width; profile.RegionReferenceHeight=bounds.Height;
                 ProfileJson.Text = JsonSerializer.Serialize(profile, Json.Options);
                 Json.Write(Path.Combine(Paths.Profiles, profile.GameId + ".json"), profile);

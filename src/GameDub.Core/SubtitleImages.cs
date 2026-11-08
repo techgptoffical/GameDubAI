@@ -7,6 +7,19 @@ namespace GameDub.Core;
 
 public static class SubtitleImages
 {
+    public static bool RepairClippedGameRegion(GameProfile profile)
+    {
+        if(profile.CaptureSchemaVersion>=1)return false;
+        profile.CaptureSchemaVersion=1;
+        if(!profile.GameId.StartsWith("GTA5",StringComparison.OrdinalIgnoreCase)||profile.Region is not {} region||profile.RegionReferenceHeight<720)return true;
+        var height=profile.RegionReferenceHeight;
+        if(region.Height<height*.10&&region.Y+region.Height>height*.90)
+        {
+            var bottom=Math.Min(height,region.Y+region.Height);var required=(int)Math.Ceiling(height*.15);
+            profile.Region=region with { Y=Math.Max(0,bottom-required),Height=required };
+        }
+        return true;
+    }
     // Retain near-white glyph strokes with a nearby dark outline; reject broad
     // bright background areas. Independently implemented after studying SubLens.
     public static Bitmap BrightText(Bitmap source)

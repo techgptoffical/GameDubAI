@@ -13,15 +13,18 @@ from tokenizers import Tokenizer
 import soundfile as sf
 
 class ChatterboxOnnx:
-    def __init__(self,directory):
+    def __init__(self,directory,backend='cpu'):
         directory=Path(directory);options=ort.SessionOptions()
         options.intra_op_num_threads=2;options.inter_op_num_threads=1
         options.enable_cpu_mem_arena=False;options.enable_mem_pattern=False
+        options.execution_mode=ort.ExecutionMode.ORT_SEQUENTIAL
         options.add_session_config_entry('session.intra_op.allow_spinning','0')
         ort.disable_telemetry_events()
         def load(name):
             print('Loading quality model:',name,flush=True)
-            session=ort.InferenceSession(str(directory/'onnx'/name),sess_options=options,providers=['CPUExecutionProvider'])
+            providers=['CPUExecutionProvider']
+            if backend=='dml' and name!='language_model_q4.onnx':providers=[('DmlExecutionProvider',{'device_id':0}),'CPUExecutionProvider']
+            session=ort.InferenceSession(str(directory/'onnx'/name),sess_options=options,providers=providers)
             print('Loaded:',name,flush=True);return session
         self.encoder=load('speech_encoder.onnx');self.embed=load('embed_tokens.onnx')
         self.language=load('language_model_q4.onnx');self.decoder=load('conditional_decoder.onnx')
