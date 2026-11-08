@@ -453,6 +453,58 @@ if(args.Contains("--speech-acceptance"))
     });
 }
 
+if(args.Contains("--live-speech"))
+{
+    // Real chain on 50 rendered unseen captions: native OCR → conversational LLM (Marian fallback) →
+    // Kokoro (DirectML, CPU fallback) → WASAPI. Run per policy; stage timings come from the event ledger.
+    foreach(var policyName in new[]{"Live Cinematic","Story Complete"})
+    await Test($"{policyName}: 50 rendered captions → OCR → conversational Hindi → Kokoro → WASAPI with stage timings",async()=>
+    {
+        var live=policyName.StartsWith("Live");
+        var directory=Path.Combine(testRoot,live?"live-speech":"story-speech");Directory.CreateDirectory(directory);
+        using var mt=new LocalWorker("translate");using var gpu=new LocalWorker("tts-dml");using var cpu=new LocalWorker("tts");using var llm=new LlamaServer();
+        using var timeout=new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        await llm.EnsureStartedAsync(timeout.Token);await mt.WarmAsync(timeout.Token);await gpu.WarmAsync(timeout.Token);
+        var localizer=new ConversationalLocalizer(llm,new OfflineLocalizer(mt,1),live);
+        await localizer.TranslateAsync(new("Okay."),new(),[],timeout.Token);
+        using var player=new WasapiPlayer { Volume=.25f };using var trace=new PipelineTrace(Path.Combine(directory,"trace"));
+        using var store=new DialogueEventStore(Path.Combine(directory,"events.sqlite"));
+        var profile=new GameProfile { DefaultVoice="hm_omega",Voices=new() { ["Michael"]="hm_omega",["Amanda"]="hf_beta" } };
+        var voice=new CachedVoice(new FallbackVoice(new KokoroVoice(gpu),new KokoroVoice(cpu)),new(Path.Combine(directory,"voice-cache")));
+        var pipeline=new DubbingPipeline(localizer,voice,player,new(Path.Combine(directory,"audio")),profile) { Trace=trace };
+        await using var scheduler=new StoryDialogueScheduler(pipeline,store,live?DialoguePolicy.LiveSync:DialoguePolicy.StoryComplete,6000,Path.Combine(directory,"mt-cache"));
+        var catchups=0;var maxWaiting=0L;scheduler.Status+=s=> { if(scheduler.NeedsCatchup) { Interlocked.Increment(ref catchups);scheduler.CatchUp(); } };
+        scheduler.Error+=s=>Console.WriteLine("provider error: "+s);
+        using var sampler=new Timer(_=>{ try { maxWaiting=Math.Max(maxWaiting,store.Count(0,"playback IN ('Pending','Ready','Deferred')")); } catch(Exception) { } },null,0,200);
+        var vramBefore=GpuMemoryMiB();
+        await RapidAcceptance.RunAsync(Path.Combine(directory,"replay"),timeout.Token,scheduler,trace,true);
+        var vramPeak=GpuMemoryMiB();
+        await scheduler.WaitForIdleAsync(timeout.Token);
+        var rows=store.Recent(100).OrderBy(e=>e.Sequence).ToArray();var spoken=rows.Where(e=>e.PlaybackStartedAt is not null).ToArray();
+        double P(IEnumerable<double> v,double q) { var o=v.OrderBy(x=>x).ToArray();return o.Length==0?0:o[(int)Math.Min(o.Length-1,Math.Floor(q*o.Length))]; }
+        object Stage(IEnumerable<double> v) { var a=v.ToArray();return new { p50=P(a,.5),p95=P(a,.95),max=a.DefaultIfEmpty().Max(),n=a.Length }; }
+        var report=new
+        {
+            policy=policyName,captured=rows.Length,spoken=spoken.Length,unspokenTextKept=rows.Count(e=>e.PlaybackState=="Unspoken"&&e.Hindi.Length>0),failed=rows.Count(e=>e.Error is not null),catchups,maxWaiting,
+            llmFallbacks=localizer.Fallbacks,translationMs=Stage(rows.Where(e=>e.TranslationMs>0).Select(e=>e.TranslationMs)),firstChunkMs=Stage(rows.Where(e=>e.FirstChunkMs>0).Select(e=>e.FirstChunkMs!.Value)),
+            synthesisMs=Stage(rows.Where(e=>e.SynthesisMs>0).Select(e=>e.SynthesisMs)),speechMs=Stage(rows.Where(e=>e.ExpectedSpeechMs>0).Select(e=>e.ExpectedSpeechMs!.Value)),
+            queueWaitMs=Stage(spoken.Where(e=>e.ReadyAt is not null).Select(e=>(e.PlaybackStartedAt!.Value-e.ReadyAt!.Value).TotalMilliseconds)),
+            captionToAudioMs=Stage(spoken.Select(e=>(e.PlaybackStartedAt!.Value-e.AppearedAt).TotalMilliseconds)),
+            gpuMemoryMiB=new { before=vramBefore,duringRun=vramPeak },workerMiB=new { llm=llm.WorkingSetBytes/1048576.0,mt=mt.WorkingSetBytes/1048576.0,tts=gpu.WorkingSetBytes/1048576.0 },
+            events=rows.Select(e=>new { e.Sequence,e.Speaker,e.VoiceId,e.English,e.Hindi,e.TranslationSource,e.PlaybackState,e.CancellationReason,e.TranslationMs,e.FirstChunkMs,e.ExpectedSpeechMs,startLagMs=e.PlaybackStartedAt is null?(double?)null:(e.PlaybackStartedAt.Value-e.AppearedAt).TotalMilliseconds }),
+            note="Captured caption time = when the rendered caption appeared. Real local inference + WASAPI output; not a GTA or FPS measurement."
+        };
+        Json.Write(Path.Combine(directory,"report.json"),report);
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { report.policy,report.captured,report.spoken,report.unspokenTextKept,report.catchups,report.maxWaiting,report.llmFallbacks,report.translationMs,report.firstChunkMs,report.speechMs,report.queueWaitMs,report.captionToAudioMs,report.gpuMemoryMiB }));
+        Check(rows.Length>=48,"OCR missed captions: "+rows.Length);
+        Check(rows.All(e=>e.Hindi.Length>0||e.Error is not null),"A captured line has no Hindi text in History");
+        Check(rows.Where(e=>e.Speaker=="Michael").All(e=>e.VoiceId=="hm_omega")&&rows.Where(e=>e.Speaker=="Amanda").All(e=>e.VoiceId=="hf_beta"),"Character voice changed");
+    });
+}
+static double GpuMemoryMiB()
+{
+    try { using var p=Process.Start(new ProcessStartInfo("nvidia-smi","--query-gpu=memory.used --format=csv,noheader,nounits"){RedirectStandardOutput=true,UseShellExecute=false,CreateNoWindow=true})!;var o=p.StandardOutput.ReadToEnd();p.WaitForExit(3000);return double.Parse(o.Trim().Split((char)10)[0]); } catch(Exception) { return -1; }
+}
 if(args.Contains("--v2-speech"))
 {
     await Test("V2 50 rendered mixed-speaker captions → OCR → real local MT/TTS → ordered WASAPI",async()=>
