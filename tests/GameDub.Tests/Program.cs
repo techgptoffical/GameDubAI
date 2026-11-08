@@ -127,6 +127,7 @@ if (args.Contains("--hindi-benchmark"))
     Console.WriteLine($"Marian p50 {P(mt,.5):0} ms p95 {P(mt,.95):0} • conversational p50 {P(ai,.5):0} ms p95 {P(ai,.95):0} • fallbacks {llmLocalizer.Fallbacks}/{lines.Length} • load {loadMs:0} ms");
     return 0;
 }
+if (args.Contains("--v2-only")) { await V2Acceptance.Run(testRoot, Test); Console.WriteLine($"{results.Count-failed}/{results.Count} passed"); return failed == 0 ? 0 : 1; }
 if (args.Contains("--ocr"))
 {
     await OcrLayoutTests.Run(testRoot, Test);

@@ -12,7 +12,7 @@
     <TextBlock x:Name="RegionStatus" Text="Select a small region around English subtitles. Use a borderless/windowed game." Foreground="#8D9BB0" FontSize="12" Margin="0,8,0,20"/>
     <DockPanel Margin="0,0,0,14"><TextBlock Text="Dialogue source" VerticalAlignment="Center" Margin="0,0,12,0"/><ComboBox x:Name="InputMode"><ComboBoxItem Content="Subtitles (recommended)"/><ComboBoxItem Content="Automatic (subtitles + audio fallback)"/><ComboBoxItem Content="Game audio (experimental offline ASR)"/></ComboBox></DockPanel>
     <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
-     <StackPanel><TextBlock Text="Dialogue policy"/><ComboBox x:Name="PolicyMode" Margin="0,5,8,0"><ComboBoxItem Content="Story Complete"/><ComboBoxItem Content="Live Sync"/></ComboBox></StackPanel>
+     <StackPanel><TextBlock Text="Dialogue policy"/><ComboBox x:Name="PolicyMode" Margin="0,5,8,0"><ComboBoxItem Content="Live Cinematic (recommended)"/><ComboBoxItem Content="Story Complete"/></ComboBox></StackPanel>
      <StackPanel Grid.Column="1"><TextBlock Text="Speaker for unlabeled subtitles (manual)"/><ComboBox x:Name="ManualCharacter" SelectionChanged="ManualCharacter_Changed" Margin="0,5,0,0"/></StackPanel>
     </Grid>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
@@ -22,7 +22,7 @@
     <TextBlock Text="Voice quality needs your listening review. Kokoro has no reliable emotional acting controls." Foreground="#8D9BB0" FontSize="12" Margin="0,12,0,18"/>
     <WrapPanel><Button x:Name="StartButton" Content="Start dubbing" Background="#3577CC" FontWeight="SemiBold" Click="Start_Click"/><Button Content="Stop / cancel speech" Click="Stop_Click"/></WrapPanel>
     <WrapPanel><Button Content="Catch up remembered dialogue" Click="CatchUp_Click"/><Button Content="Scene skipped • clear speech" Click="ClearScene_Click"/></WrapPanel>
-    <TextBlock x:Name="BacklogStatus" Text="Story Complete keeps dialogue in History. Unlabeled speakers use your selected fallback voice." Foreground="#A7C9F6" TextWrapping="Wrap" Margin="0,8,0,4"/>
+    <TextBlock x:Name="BacklogStatus" Text="Live Cinematic stays close to the scene: at most 2 lines wait, lines older than 6 s are shown in History instead of spoken. Story Complete speaks everything in order and asks for Catch up after 20 s of lag." Foreground="#A7C9F6" TextWrapping="Wrap" Margin="0,8,0,4"/>
     <GroupBox Header="Latest dialogue"><StackPanel><TextBlock Text="ENGLISH" Foreground="#8291A7" FontSize="10"/><TextBlock x:Name="Original" Text="Waiting for dialogue…" FontSize="16" Margin="0,7,0,18"/><TextBlock Text="HINDI" Foreground="#8291A7" FontSize="10"/><TextBlock x:Name="Hindi" Text="हिंदी संवाद यहाँ दिखेगा।" FontFamily="Nirmala UI" FontSize="23" Margin="0,7,0,5"/><TextBlock x:Name="LineSource" FontSize="11" Foreground="#91A1B9"/></StackPanel></GroupBox>
     <TextBlock Text="For music and effects: lower only the game's dialogue volume yourself and keep subtitles enabled. Optional ducking lowers the selected game's entire mix while Hindi plays." Foreground="#9BA9BD" FontSize="12" Margin="0,14,0,0"/>
    </StackPanel></ScrollViewer></TabItem>

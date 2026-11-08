@@ -230,7 +230,7 @@ public partial class MainWindow : Window
             { diagnosticTrace = new PipelineTrace(); DiagnosticPath.Text = diagnosticTrace.DirectoryPath; }
             var pipeline = MakePipeline(profile);
             OpenDialogueHistory();
-            var activeRouter = router = new StoryDialogueScheduler(pipeline,eventStore!,settings.DialoguePolicy=="Live Sync"?DialoguePolicy.LiveSync:DialoguePolicy.StoryComplete);
+            var activeRouter = router = new StoryDialogueScheduler(pipeline,eventStore!,settings.DialoguePolicy.StartsWith("Live")?DialoguePolicy.LiveSync:DialoguePolicy.StoryComplete,6000);
             activeRouter.Error += SetStatus;
             activeRouter.Status += SetStatus;
             if (automatic && game.ProcessId != Environment.ProcessId)

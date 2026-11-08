@@ -44,6 +44,10 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
     private string? lastSubtitle;
     private long dropped;
     private readonly int liveDeadlineMs;
+    /// <summary>Live Cinematic: most lines allowed to wait (not yet playing). Older ones become text-only history.</summary>
+    public int MaxLiveBacklog { get; init; } = 2;
+    /// <summary>Story Complete: lag at which playback stops and asks for Catch up.</summary>
+    public double StoryCatchupSeconds { get; init; } = 20;
     public event Action<string>? Error;
     public event Action<string>? Status;
     public long DroppedCount=>Interlocked.Read(ref dropped);
@@ -77,6 +81,11 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
             }
             var voice=CharacterVoices.Assign(line,pipeline.SchedulerProfile);
             var item=store.Add(line,scene,voice);lastSubtitle=item.Id;
+            if(policy==DialoguePolicy.LiveSync)
+                // Never interrupt the line that is playing; drop the oldest *waiting* lines instead so
+                // speech stays close to the scene. Their text (and translation) stays in History.
+                while(store.Count(scene,"playback IN ('Pending','Ready','Deferred')")>Math.Max(1,MaxLiveBacklog)&&store.First(scene,"playback IN ('Pending','Ready','Deferred')") is { } oldest&&oldest.Id!=item.Id)
+                    Unspoken(oldest,"Live backlog: newer dialogue took priority; text kept in History");
             pipeline.Trace?.Write("captured_event",line,new { sequence=item.Sequence,speaker=item.Speaker,voice=item.VoiceId,evidence=item.SpeakerEvidence,confidence=item.SpeakerConfidence,policy=policy.ToString() });
         }
         Wake();
@@ -146,7 +155,10 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
         {
             while(!lifetime.IsCancellationRequested)
             {
-                var item=store.First(scene,"translation='Pending' AND playback!='Cancelled'");if(item is null) { await Tick();continue; }
+                // Live: translate lines that can still be spoken first; obsolete ones are translated later for History.
+                var item=(policy==DialoguePolicy.LiveSync?store.First(scene,"translation='Pending' AND playback IN ('Pending','Deferred')"):null)
+                    ??store.First(scene,"translation='Pending' AND playback!='Cancelled'");if(item is null) { await Tick();continue; }
+                if(item.PlaybackState is "Pending" or "Deferred"&&Expired(item)) { Unspoken(item,"Live deadline passed before translation; text kept in History");continue; }
                 using var job=JobToken(item.Scene);UpdateCurrent(item,e=>e.TranslationState="Translating");var watch=Stopwatch.StartNew();
                 try
                 {
@@ -231,7 +243,7 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
                 var item=store.First(scene,"playback IN ('Pending','Ready','Deferred')");if(item is null) { catchingUp=false;await Tick();continue; }
                 if(Expired(item)) { Unspoken(item,"Live Sync playback deadline; full translated line remains in history");continue; }
                 if(item.PlaybackState!="Ready"||!prepared.TryGetValue(item.Id,out var packet)) { await Tick();continue; }
-                if(policy==DialoguePolicy.StoryComplete&&!catchingUp&&(DateTimeOffset.UtcNow-item.AppearedAt).TotalSeconds>8)
+                if(policy==DialoguePolicy.StoryComplete&&!catchingUp&&(DateTimeOffset.UtcNow-item.AppearedAt).TotalSeconds>StoryCatchupSeconds)
                 { needsCatchup=true;Status?.Invoke($"Story backlog: {PendingCount} lines remembered. Use Catch up or replay History; nothing was silently deleted.");continue; }
                 using var job=JobToken(item.Scene);var began=false;
                 try

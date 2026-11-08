@@ -26,13 +26,24 @@ public sealed class AppSettings
     public int MaxAgeMs { get; set; } = 6000;
     public string PerformanceMode { get; set; } = "Balanced";
     public string InputMode { get; set; } = "Subtitles (recommended)";
-    public string DialoguePolicy { get; set; } = "Story Complete";
+    public string DialoguePolicy { get; set; } = "Live Cinematic (recommended)";
     public bool DuckGameAudio { get; set; }
     public float DuckLevel { get; set; } = 0.3f;
+    public int SettingsVersion { get; set; }
     public static AppSettings Load()
     {
-        try { return Json.Read<AppSettings>(Path.Combine(Paths.Root, "settings.json")); }
-        catch (Exception e) when (e is IOException or JsonException) { return new(); }
+        AppSettings settings;
+        try { settings = Json.Read<AppSettings>(Path.Combine(Paths.Root, "settings.json")); }
+        catch (Exception e) when (e is IOException or JsonException) { return new() { SettingsVersion = 2 }; }
+        if (settings.SettingsVersion < 2)
+        {
+            // One-time move to the repaired defaults: conversational Hindi + Live Cinematic. Voice/output kept.
+            settings.SettingsVersion = 2;
+            if (!settings.Translator.StartsWith("Local sample")) settings.Translator = "Conversational Hindi (local AI, recommended)";
+            settings.DialoguePolicy = "Live Cinematic (recommended)";
+            try { settings.Save(); } catch (IOException) { }
+        }
+        return settings;
     }
     public void Save() => Json.Write(Path.Combine(Paths.Root, "settings.json"), this);
 }

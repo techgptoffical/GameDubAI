@@ -41,7 +41,7 @@ internal static class V2Acceptance
         {
             var dir=Path.Combine(root,"v2-catchup");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);
             await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt"));
-            var line=new Dialogue("remember this story") { FirstSeenAt=DateTimeOffset.UtcNow.AddSeconds(-10) };scheduler.Submit(line);
+            var line=new Dialogue("remember this story") { FirstSeenAt=DateTimeOffset.UtcNow.AddSeconds(-25) };scheduler.Submit(line);
             await Until(()=>scheduler.NeedsCatchup);Check(output.Lines.IsEmpty&&store.Get(line.EventId)!.Hindi.Length>0,"Old line lost or played without catch-up");
             scheduler.CatchUp();using var timeout=new CancellationTokenSource(3000);await scheduler.WaitForIdleAsync(timeout.Token);
             Check(store.Get(line.EventId)!.PlaybackState=="Completed"&&scheduler.DroppedCount==0,"Catch-up dropped the line");
@@ -84,6 +84,25 @@ internal static class V2Acceptance
             Check(unknown.VoiceId=="hm_omega"&&unknown.Speaker=="Unknown"&&unknown.Confidence is null,"Guessed gender from dialogue");
             profile.GameId="GTA5_Enhanced";CharacterVoices.MigrateKnownGame(profile);
             Check(profile.VoiceFor("Michael")=="hm_psi","Migration overwrote user assignment");return Task.CompletedTask;
+        });
+        await test("Live Cinematic keeps speech near the scene: bounded backlog, order, no overlap, history kept",async()=>
+        {
+            var dir=Path.Combine(root,"live-cinematic");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(400);
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,6000,Path.Combine(dir,"mt"));
+            var lines=Enumerable.Range(0,8).Select(i=>new Dialogue($"rapid cutscene line {i}")).ToArray();
+            var maxWaiting=0L;
+            foreach(var line in lines) { scheduler.Submit(line with { FirstSeenAt=DateTimeOffset.UtcNow });await Task.Delay(60);maxWaiting=Math.Max(maxWaiting,store.Count(0,"playback IN ('Pending','Ready','Deferred')")); }
+            using var timeout=new CancellationTokenSource(8000);await scheduler.WaitForIdleAsync(timeout.Token);
+            var events=lines.Select(l=>store.Get(l.EventId)!).ToArray();var played=output.Lines.ToArray();
+            Check(maxWaiting<=2,"Live backlog exceeded 2 waiting lines: "+maxWaiting);
+            Check(played.Length>=2&&played.Length<lines.Length,"Live mode either spoke nothing or let the whole burst queue up");
+            Check(played.SequenceEqual(played.OrderBy(p=>int.Parse(p.Split(' ').Last()))),"Live playback reordered dialogue");
+            Check(played.Last()==lines.Last().English,"Newest line was not spoken");
+            Check(output.MaxActive==1,"Overlapping speech");
+            Check(events.All(e=>e.Hindi.Length>0)&&events.Count(e=>e.PlaybackState=="Unspoken")==lines.Length-played.Length,"Skipped lines lost their translated text in History");
+            var lag=events.Where(e=>e.PlaybackStartedAt is not null).Max(e=>(e.PlaybackStartedAt!.Value-e.AppearedAt).TotalMilliseconds);
+            Json.Write(Path.Combine(dir,"live.json"),new { played,maxWaiting,maxStartLagMs=lag,events=events.Select(e=>new { e.English,e.PlaybackState,e.CancellationReason,e.AppearedAt,e.ReadyAt,e.PlaybackStartedAt,e.PlaybackCompletedAt,e.TranslationMs,e.SynthesisMs }) });
+            Check(lag<3000,"Live start lag too high (fake lines play ~1.2 s each, at most 2 may wait): "+lag);
         });
         await test("V2 event history survives database reopen",()=>
         {
