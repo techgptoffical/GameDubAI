@@ -70,12 +70,36 @@ Real chain (`--live-speech`): 50 rendered unseen captions → OCR → Gemma → 
 
 The bottleneck is Hindi speech length (p50 2.2 s) plus about 1 s of Kokoro first chunk and about 0.9 s of translation. Each new line costs roughly 2 s of preparation, and that overlaps the previous line's playback.
 
-## 4. Voices (not solved)
-Quality mode uses Kokoro-82M Hindi (4 voices, espeak-ng phonemes) at speed 1.0. Its accent and flat prosody come from the model itself, not from the settings. Better phrasing helps a little: `artifacts/voice-comparison/*.wav` has the same voice reading Marian text and the new text.
+## 4. Voices
+The default voice engine is now **IndicF5** (MIT, ai4bharat), running on the GPU. Kokoro stays selectable and is the automatic fallback.
 
-The two realistic upgrades are IndicF5 (MIT, voice-prompted) and Indic Parler-TTS (Apache-2.0, named Hindi speakers, emotion prompts). Both are **gated on Hugging Face** (your account must accept their terms) and need about 3 GB of PyTorch CUDA. I did not download them.
+IndicF5 needs a reference voice. The references are four synthetic speakers generated locally with **Indic Parler-TTS** (Apache-2.0). No real person's voice was cloned.
 
-GTA V subtitles carry no speaker names. Character voices therefore come from labels, manual selection, or the consistent default.
+| Profile | Character voice ID | Parler speaker |
+|---|---|---|
+| Deep male | hm_omega | Rohit |
+| Young male | hm_psi | Aman |
+| Expressive female | hf_alpha | Divya |
+| Calm female | hf_beta | Rani |
+
+The same IDs work for Kokoro, so each character keeps their voice when you switch engines. Both models are gated on Hugging Face and were downloaded with your account.
+
+Measured on the same Hindi lines:
+
+| Engine | Time per line | Whisper large-v3 CER |
+|---|---|---|
+| Kokoro (old) | ~1 s to first audio | 0.8% |
+| IndicF5, 8 steps (in app) | 1.0–1.9 s | 1.1% |
+| IndicF5, 16 steps (Quality mode) | 2–3 s | 1.3% |
+| Parler-TTS | RTF ~3 (too slow for live) | 5.2% |
+
+CER only measures clarity, not naturalness. Listen and compare: `artifacts/voice-listen.html`.
+
+End to end with IndicF5 in Live Cinematic: 41/50 spoken, caption→audio p50 3.3 s, p95 5.2 s, no fallbacks.
+
+**Cost:** IndicF5 adds about 2.2 GB RAM and 2.8 GB VRAM. All of GameDub together (LLM + voice) uses about 5.4 GB RAM and 4.7 GB VRAM, and starts in about 85 s. On 16 GB RAM, close browsers before playing, or choose Kokoro (about 0.5 GB) if GTA stutters.
+
+Emotion is not controlled per line: IndicF5 copies the reference voice's delivery. GTA subtitles carry no speaker names, so characters get voices only from labels, manual selection, or the default.
 
 ## 5. Resources and limits
 - The LLM server uses about 3–4 GB VRAM and about 3 GB RAM (the per-layer embeddings stay on the CPU), and takes about 20 s to start. Model processes now run in a kill-on-close job, so they die with the app even after a crash.
