@@ -19,10 +19,10 @@ public partial class MainWindow : Window
     private readonly LocalWorker asrWorker = new("asr");
     private readonly WasapiPlayer audio = new();
     private readonly GameDuckingPlayer mixer;
-    private GameProfile profile = new() { DefaultVoice = "hf_alpha" };
+    private GameProfile profile = new() { DefaultVoice = "hm_omega" };
     private CancellationTokenSource? operation;
     private CancellationTokenSource? session;
-    private DialogueRouter? router;
+    private IDialogueController? router;
     private DubbingPipeline? currentPipeline;
     private AudioClip? lastClip;
     private string? lastVoiceId;
@@ -46,6 +46,7 @@ public partial class MainWindow : Window
         RefreshOutputs();
         ProfileJson.Text = JsonSerializer.Serialize(profile, Json.Options);
         initialized = true;
+        InitializeV2Ui();
         Loaded += async (_, _) =>
         {
             await RefreshGamesAsync();
@@ -75,7 +76,15 @@ public partial class MainWindow : Window
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             var translator=settings.Translator.StartsWith("Offline NLLB")?nllbWorker:translationWorker;
             var tts=settings.Tts.Contains("GPU")?gpuVoiceWorker:voiceWorker;
-            await Task.WhenAll(translator.WarmAsync(timeout.Token), tts.WarmAsync(timeout.Token));
+            // Sequential initialization avoids overlapping model-load allocation peaks on 16GB PCs.
+            try { await translator.WarmAsync(timeout.Token); }
+            catch(Exception failure)when(translator==nllbWorker&&failure is not OperationCanceledException)
+            {
+                settings.Translator="Offline English → Hindi";SelectCombo(Translator,settings.Translator);
+                translator=translationWorker;await translator.WarmAsync(timeout.Token);
+                SetStatus("NLLB could not load; using the smaller offline Marian translator. "+failure.Message);
+            }
+            await tts.WarmAsync(timeout.Token);
             Readiness.Text = "Local models ready • Windows subtitle OCR • selected-device WASAPI output";
             SetStatus("Ready. Try Voice lab, or open the subtitle demo."); StartButton.IsEnabled = true;
             Json.Write(Path.Combine(Paths.Root, "startup-health.json"), new { at = DateTimeOffset.Now, ready = true, runtime = File.Exists(Path.Combine(Paths.Workspace, "runtime", "python.exe")) ? "bundled Python" : "project venv",translationEngine=translator.Kind,voiceEngine=tts.Kind, translationMiB = translator.WorkingSetBytes / 1048576.0, voiceMiB = tts.WorkingSetBytes / 1048576.0 });
@@ -166,6 +175,7 @@ public partial class MainWindow : Window
     {
         settings.Translator = Selected(Translator); settings.Tts = Selected(Tts); settings.PerformanceMode = Selected(Mode);
         settings.InputMode = Selected(InputMode);
+        settings.DialoguePolicy = Selected(PolicyMode);
         settings.OutputDevice = (Outputs.SelectedItem as AudioDevice)?.Id ?? ""; settings.Volume = (float)Volume.Value;
         settings.DuckGameAudio = Ducking.IsChecked == true;
         audio.DeviceId = settings.OutputDevice; audio.Volume = settings.Volume;
@@ -208,7 +218,8 @@ public partial class MainWindow : Window
             if(CaptureDiagnostics.IsChecked == true || Environment.GetCommandLineArgs().Contains("--diagnostic-session"))
             { diagnosticTrace = new PipelineTrace(); DiagnosticPath.Text = diagnosticTrace.DirectoryPath; }
             var pipeline = MakePipeline(profile);
-            var activeRouter = router = new DialogueRouter(pipeline, mixer, preserveLines: settings.PerformanceMode != "Performance", maxDelayMs: settings.PerformanceMode == "Quality" ? 12000 : 8000);
+            OpenDialogueHistory();
+            var activeRouter = router = new StoryDialogueScheduler(pipeline,eventStore!,settings.DialoguePolicy=="Live Sync"?DialoguePolicy.LiveSync:DialoguePolicy.StoryComplete);
             activeRouter.Error += SetStatus;
             activeRouter.Status += SetStatus;
             if (automatic && game.ProcessId != Environment.ProcessId)
@@ -333,7 +344,7 @@ public partial class MainWindow : Window
         targetLifetime.Cancel();
         e.Cancel = true;
         await StopAllAsync();
-        closing = true; demo?.Close(); translationWorker.Dispose(); nllbWorker.Dispose(); voiceWorker.Dispose(); gpuVoiceWorker.Dispose(); asrWorker.Dispose(); audio.Dispose();
+        closing = true; historyWatch.Stop();eventStore?.Dispose();demo?.Close(); translationWorker.Dispose(); nllbWorker.Dispose(); voiceWorker.Dispose(); gpuVoiceWorker.Dispose(); asrWorker.Dispose(); audio.Dispose();
         // Closing can complete synchronously when idle. Queue the second Close until WPF has
         // returned from the cancelled Closing event, avoiding a reentrant-close exception.
         _ = Dispatcher.BeginInvoke(new Action(Close));

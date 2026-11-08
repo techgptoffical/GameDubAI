@@ -5,10 +5,16 @@ using NAudio.Wave.SampleProviders;
 namespace GameDub.Core;
 
 public record AudioDevice(string Id, string Name) { public override string ToString() => Name; }
-public sealed class WasapiPlayer : IAudioPlayer, IDisposable
+public interface IPausableAudioPlayer
+{
+    void Pause();
+    void Resume();
+}
+public sealed class WasapiPlayer : IAudioPlayer, IDisposable,IPausableAudioPlayer
 {
     private readonly object gate = new();
     private WasapiOut? active;
+    private bool pauseRequested;
     public string DeviceId { get; set; } = "";
     public float Volume { get; set; } = 0.7f;
     public static List<AudioDevice> Devices()
@@ -46,13 +52,23 @@ public sealed class WasapiPlayer : IAudioPlayer, IDisposable
         try
         {
             token.ThrowIfCancellationRequested();
-            output.Play();
-            started(); // Playback request, not a measured acoustic arrival time.
+            while(true)
+            {
+                lock(gate)
+                {
+                    token.ThrowIfCancellationRequested();
+                    if(!pauseRequested) { output.Play();break; }
+                }
+                await Task.Delay(20,token);
+            }
+            started(); // Playback request, not acoustic arrival; callbacks run outside the device lock.
             await done.Task.WaitAsync(token);
         }
         finally { lock (gate) { output.Stop(); if (active == output) active = null; } }
     }
-    public void Stop() { lock (gate) active?.Stop(); }
+    public void Stop() { lock (gate) { pauseRequested=false;active?.Stop(); } }
+    public void Pause() { lock(gate) { pauseRequested=true;active?.Pause(); } }
+    public void Resume() { lock(gate) { pauseRequested=false;if(active?.PlaybackState==PlaybackState.Paused)active.Play(); } }
     public void Dispose() => Stop();
     public static void SaveWave(AudioClip clip, string path)
     {

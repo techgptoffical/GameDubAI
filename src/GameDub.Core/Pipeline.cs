@@ -8,6 +8,14 @@ public sealed class DubbingPipeline(ILocalizer localizer, IVoiceProvider voice, 
     public DialogueContextMemory Context { get; } = new();
     public LatencyMetrics Metrics { get; } = new();
     public PipelineTrace? Trace { get; set; }
+    internal ILocalizer SchedulerLocalizer=>localizer;
+    internal IVoiceProvider SchedulerVoice=>voice;
+    internal IAudioPlayer SchedulerPlayer=>player;
+    internal DialogueCache SchedulerCache=>cache;
+    internal GameProfile SchedulerProfile=>profile;
+    internal void PublishLocalized(Dialogue line,LocalizedLine localized)=>Localized?.Invoke(line,localized);
+    internal void PublishReady(Dialogue line,LocalizedLine localized,AudioClip clip)=>Ready?.Invoke(line,localized,clip);
+    internal void PublishPlaying(Dialogue line,LocalizedLine localized)=>Playing?.Invoke(line,localized);
     public event Action<Dialogue, LocalizedLine, AudioClip>? Ready;
     public event Action<Dialogue, LocalizedLine>? Localized;
     public event Action<Dialogue, LocalizedLine>? Playing;

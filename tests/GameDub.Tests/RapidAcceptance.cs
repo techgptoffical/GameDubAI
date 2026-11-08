@@ -9,11 +9,12 @@ internal sealed record AcceptanceLine(string Id,string Category,string English,s
 internal static class RapidAcceptance
 {
     private sealed record Slot(AcceptanceLine Line,double Begin,double End,int Index);
-    internal static async Task RunAsync(string output,CancellationToken token,IDialogueSink? sink=null,PipelineTrace? trace=null)
+    internal static async Task RunAsync(string output,CancellationToken token,IDialogueSink? sink=null,PipelineTrace? trace=null,bool speakerLabels=false)
     {
         var lines=Json.Read<List<AcceptanceLine>>(Path.Combine(Paths.Workspace,"data","acceptance-dialogue.json"));
         var fixtures=Json.Samples().Select(s=>Text.Key(s.English)).ToHashSet();
         if(lines.Count<50 || lines.Any(l=>fixtures.Contains(Text.Key(l.English))))throw new Exception("Acceptance set must contain 50 unseen lines");
+        if(speakerLabels)lines=lines.Select((l,i)=>l with { English=((i%3) switch { 0=>"Michael: ",1=>"Amanda: ",_=>"" })+l.English }).ToList();
         Directory.CreateDirectory(output);
         var styles=new List<object>();
         foreach(var style in sink is null?new[]{"Raw","Auto"}:new[]{"Raw"})

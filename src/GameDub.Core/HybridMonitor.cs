@@ -48,11 +48,15 @@ public sealed class HybridArbiter(IDialogueSink downstream)
             downstream.SubtitleCleared();
         }
     }
-    private sealed class Source(HybridArbiter owner, bool subtitle) : IDialogueSink
+    private void PauseSource(string reason) { if(downstream is IPausableDialogueSink p)p.Pause(reason);else downstream.Interrupt(); }
+    private void ResumeSource() { if(downstream is IPausableDialogueSink p)p.Resume(); }
+    private sealed class Source(HybridArbiter owner, bool subtitle) : IDialogueSink,IPausableDialogueSink
     {
         public void Submit(Dialogue line) => owner.Submit(line, subtitle);
         public void Interrupt() => owner.Interrupt(subtitle);
         public void SubtitleCleared() { if (subtitle) owner.SubtitleCleared(); }
+        public void Pause(string reason)=>owner.PauseSource(reason);
+        public void Resume()=>owner.ResumeSource();
     }
 }
 
@@ -60,7 +64,7 @@ public sealed class HybridMonitor(LocalWorker asr)
 {
     public PipelineTrace? Trace { get; set; }
     public event Action<string>? Status;
-    public async Task RunAsync(GameWindow game, CaptureRegion region, DialogueRouter router, CancellationToken token,GameProfile? profile = null)
+    public async Task RunAsync(GameWindow game, CaptureRegion region, IDialogueSink router, CancellationToken token,GameProfile? profile = null)
     {
         var arbiter = new HybridArbiter(router);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);

@@ -2,6 +2,7 @@
   <PropertyGroup><UseWindowsForms>true</UseWindowsForms><AllowUnsafeBlocks>true</AllowUnsafeBlocks></PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.24" />
   </ItemGroup>
   <ItemGroup><None Include="../../data/dialogue-tests.json" Link="data/dialogue-tests.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

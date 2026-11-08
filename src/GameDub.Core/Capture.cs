@@ -166,6 +166,7 @@ public sealed class SubtitleMonitor
         var suspended = false;
         var escapeWasDown=false;
         var suppressUntil=TimeSpan.Zero;
+        var lastEmitted="";var pauseHint=false;
         while (!token.IsCancellationRequested)
         {
             if (!GameWindows.IsAlive(game))
@@ -178,18 +179,19 @@ public sealed class SubtitleMonitor
             }
             if (GameWindows.IsIconic(game.Handle) || GameWindows.GetForegroundWindow() != game.Handle)
             {
-                if (!suspended) { router.Interrupt(); detector = new(); previousHash = 0; previousText = ""; suspended = true; Status?.Invoke("Waiting for the selected game to be in the foreground…"); }
+                if (!suspended) { if(router is IPausableDialogueSink p)p.Pause("Game lost foreground");else router.Interrupt(); detector = new(); previousHash = 0; previousText = ""; suspended = true; Status?.Invoke("Waiting for the selected game • prepared dialogue retained where supported"); }
                 await Task.Delay(500, token); continue;
             }
-            if(suspended) Status?.Invoke("Watching the selected game • waiting for English subtitles in the chosen region");
+            if(suspended) { if(router is IPausableDialogueSink p)p.Resume();Status?.Invoke("Watching the selected game • waiting for English subtitles in the chosen region"); }
             suspended = false;
             var escapeDown=GameWindows.EscapeDown();
             if(escapeDown && !escapeWasDown)
             {
-                router.Interrupt(); detector=new(); previousText=""; previousHash=0;
+                if(router is IPausableDialogueSink p) { p.Pause("Game pause input");pauseHint=true; }else router.Interrupt();
+                detector=new(); previousText=""; previousHash=0;
                 suppressUntil=clock.Elapsed+TimeSpan.FromMilliseconds(250);
-                Trace?.Write("scene_interrupt",null,new { reason="game_escape_pause_or_skip", speechCancelled=true });
-                Status?.Invoke("Game pause/skip input • old speech and waiting dialogue cleared");
+                Trace?.Write("pause_hint",null,new { reason="game_escape",identityOfSceneChangeUnknown=true });
+                Status?.Invoke("Speech paused • next subtitle resumes. Use Clear scene when skipping a cutscene.");
             }
             escapeWasDown=escapeDown;
             if(clock.Elapsed<suppressUntil) { await Task.Delay(100,token); continue; }
@@ -214,12 +216,15 @@ public sealed class SubtitleMonitor
             Trace?.Frame(bitmap,previousText,LastOcrMs);
             if (observation.Event == SubtitleEvent.Line)
             {
+                if(pauseHint && router is IPausableDialogueSink p)p.Resume();pauseHint=false;
+                if(Text.Key(observation.Text)==Text.Key(lastEmitted)) { await Task.Delay(100,token);continue; }
+                lastEmitted=observation.Text;
                 Status?.Invoke($"Subtitle detected • OCR {LastOcrMs:0} ms");
                 var line = Text.Parse(observation.Text) with { FirstSeenAt = capturedAt-(clock.Elapsed-observation.FirstSeen) };
                 Trace?.Write("detected",line,new { english = line.English, firstObservedAt = line.FirstSeenAt, stabilizationMs = (clock.Elapsed-observation.FirstSeen).TotalMilliseconds });
                 router.Submit(line);
             }
-            else if (observation.Event == SubtitleEvent.Cleared) { router.SubtitleCleared(); Status?.Invoke("Waiting for next subtitle • current Hindi may finish within its time budget"); }
+            else if (observation.Event == SubtitleEvent.Cleared) { if(!pauseHint)lastEmitted="";router.SubtitleCleared(); Status?.Invoke("Waiting for next subtitle • dialogue retained"); }
             await Task.Delay(100, token);
         }
     }

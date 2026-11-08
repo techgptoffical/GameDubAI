@@ -26,6 +26,7 @@ public sealed class AppSettings
     public int MaxAgeMs { get; set; } = 6000;
     public string PerformanceMode { get; set; } = "Balanced";
     public string InputMode { get; set; } = "Subtitles (recommended)";
+    public string DialoguePolicy { get; set; } = "Story Complete";
     public bool DuckGameAudio { get; set; }
     public float DuckLevel { get; set; } = 0.3f;
     public static AppSettings Load()

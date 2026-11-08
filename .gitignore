@@ -14,6 +14,10 @@ models/translation/
 __pycache__/
 runtime/
 runtime-dml/
+runtime-piper/
+runtime-voiceextras/
+models/chatterbox-onnx/
+models/piper/
 models/marian-ct2/
 models/nllb-ct2/
 build/

@@ -22,6 +22,9 @@ public sealed class GameProfile
     public string Setting { get; set; } = "Unknown; do not invent a setting.";
     public string DefaultVoice { get; set; } = "hi";
     public Dictionary<string, string> Voices { get; set; } = new();
+    public Dictionary<string,CharacterVoiceProfile> Characters { get; set; } = new();
+    public string ManualSpeaker { get; set; } = "Unknown";
+    public int VoiceSchemaVersion { get; set; }
     public Dictionary<string, string> Relationships { get; set; } = new();
     public Dictionary<string, string> Glossary { get; set; } = new();
     public Dictionary<string, string> ReviewedLines { get; set; } = new();
@@ -30,7 +33,8 @@ public sealed class GameProfile
     public int RegionReferenceHeight { get; set; }
     public string OcrStyle { get; set; } = "Raw";
     public int OcrScale { get; set; } = 1;
-    public string VoiceFor(string speaker) => Voices.GetValueOrDefault(speaker, DefaultVoice);
+    public string VoiceFor(string speaker) => Characters.FirstOrDefault(p=>p.Key.Equals(speaker,StringComparison.OrdinalIgnoreCase)).Value?.VoiceId
+        ?? Voices.FirstOrDefault(p=>p.Key.Equals(speaker,StringComparison.OrdinalIgnoreCase)).Value ?? DefaultVoice;
 }
 
 public static class Json
@@ -55,6 +59,12 @@ public static partial class Text
     public static Dialogue Parse(string text)
     {
         text = Clean(text);
+        if(text.StartsWith('[')&&text.IndexOf(']') is >1 and <33)
+        {
+            var end=text.IndexOf(']');var label=text[1..end];
+            if(label.All(c=>char.IsLetter(c)||c is ' ' or '-')&&text[(end+1)..].Trim().Length>0)
+                return new(text[(end+1)..].Trim().TrimStart(':').Trim(),label);
+        }
         var colon = text.IndexOf(':');
         if (colon is > 0 and < 32 && text[..colon].All(c => char.IsLetter(c) || c is ' ' or '-'))
             return new(text[(colon + 1)..].Trim(), text[..colon]);
@@ -108,8 +118,8 @@ public sealed class FixtureLocalizer : ILocalizer
         var candidates = samples.Where(s => Text.Key(s.English) == Text.Key(line.English)).ToList();
         var match = candidates.FirstOrDefault(s => s.Context == line.Context) ?? (candidates.Count == 1 ? candidates[0] : null);
         if (match is null) throw new InvalidOperationException(candidates.Count > 1
-            ? "This local sample is ambiguous. Select its context in Voice Lab, or use Gemini."
-            : "Local fixture mode only knows the bundled sample lines. Configure Gemini for arbitrary game dialogue.");
+            ? "This local sample is ambiguous. Select its context in Voice Lab, or choose offline translation in Settings."
+            : "Local fixture mode only knows the bundled sample lines. Choose offline translation in Settings for game dialogue.");
         return Task.FromResult(new LocalizedLine(match.Hindi, line.Emotion == "neutral" ? match.Emotion : line.Emotion, Identity));
     }
 }

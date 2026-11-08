@@ -418,6 +418,32 @@ if(args.Contains("--speech-acceptance"))
     });
 }
 
+if(args.Contains("--v2-speech"))
+{
+    await Test("V2 50 rendered mixed-speaker captions → OCR → real local MT/TTS → ordered WASAPI",async()=>
+    {
+        var directory=Path.Combine(testRoot,"v2-speech");Directory.CreateDirectory(directory);
+        using var mt=new LocalWorker("translate-nllb");using var gpu=new LocalWorker("tts-dml");using var cpu=new LocalWorker("tts");
+        using var timeout=new CancellationTokenSource(TimeSpan.FromMinutes(8));
+        await Task.WhenAll(mt.WarmAsync(timeout.Token),gpu.WarmAsync(timeout.Token));
+        using var player=new WasapiPlayer { Volume=.25f };using var trace=new PipelineTrace(Path.Combine(directory,"trace"));
+        using var store=new DialogueEventStore(Path.Combine(directory,"events.sqlite"));
+        var profile=new GameProfile { DefaultVoice="hm_omega",Voices=new() { ["Michael"]="hm_omega",["Amanda"]="hf_beta" } };
+        var voice=new CachedVoice(new FallbackVoice(new KokoroVoice(gpu),new KokoroVoice(cpu)),new(Path.Combine(directory,"voice-cache")));
+        var pipeline=new DubbingPipeline(new OfflineLocalizer(mt,1),voice,player,new(Path.Combine(directory,"audio")),profile) { Trace=trace };
+        await using var scheduler=new StoryDialogueScheduler(pipeline,store,translationCacheDirectory:Path.Combine(directory,"mt-cache"));
+        var catchups=0;scheduler.Status+=s=> { Console.WriteLine(s);if(scheduler.NeedsCatchup) { Interlocked.Increment(ref catchups);scheduler.CatchUp(); } };
+        scheduler.Error+=s=>Console.WriteLine("V2 real provider error: "+s);
+        await RapidAcceptance.RunAsync(Path.Combine(directory,"replay"),timeout.Token,scheduler,trace,true);
+        scheduler.CatchUp();await scheduler.WaitForIdleAsync(timeout.Token);
+        var rows=store.Recent(100).OrderBy(e=>e.Sequence).ToArray();
+        Json.Write(Path.Combine(directory,"report.json"),new { captured=rows.Length,completed=rows.Count(e=>e.PlaybackState=="Completed"),unspoken=scheduler.DroppedCount,catchups,
+            workerMiB=new { mt=mt.WorkingSetBytes/1048576.0,gpu=gpu.WorkingSetBytes/1048576.0,cpu=cpu.WorkingSetBytes/1048576.0 },metrics=pipeline.Metrics.Snapshot(),events=rows,
+            note="Real local inference and WASAPI output on rendered synthetic subtitles. Test automatically chooses Catch up when backlog is old. No human naturalness ratings, real-game recall, acoustic latency or FPS measured." });
+        Check(rows.Length==50&&rows.All(e=>e.PlaybackState=="Completed"),"Some captured lines did not finish: inspect V2 report");
+        Check(rows.Where(e=>e.Speaker=="Michael").All(e=>e.VoiceId=="hm_omega")&&rows.Where(e=>e.Speaker=="Amanda").All(e=>e.VoiceId=="hf_beta"),"Wrong explicit character voice");
+    });
+}
 if (args.Contains("--integration"))
 {
     await Test("cancelled local inference keeps its warm process and drains before the next reply", async () =>
@@ -617,6 +643,7 @@ if (args.Contains("--duck"))
         finally { if (!child.HasExited) child.Kill(true); }
     });
 }
+await V2Acceptance.Run(testRoot,Test);
 Json.Write(Path.Combine(testRoot, "results.json"), results);
 Console.WriteLine($"{results.Count-failed}/{results.Count} passed; results: {testRoot}");
 return failed == 0 ? 0 : 1;

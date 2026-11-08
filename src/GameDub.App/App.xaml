@@ -9,5 +9,7 @@
   <Style TargetType="CheckBox"><Setter Property="Foreground" Value="#DFE5EF"/><Setter Property="Margin" Value="0,10,0,10"/></Style>
   <Style TargetType="TabItem"><Setter Property="Padding" Value="16,8"/><Setter Property="Foreground" Value="#151A22"/></Style>
   <Style TargetType="GroupBox"><Setter Property="Foreground" Value="#D3DCE8"/><Setter Property="Padding" Value="12"/><Setter Property="Margin" Value="0,10,0,4"/></Style>
+  <Style TargetType="DataGridRow"><Setter Property="Background" Value="#1B2028"/><Setter Property="Foreground" Value="#ECEFF4"/></Style>
+  <Style TargetType="DataGridColumnHeader"><Setter Property="Background" Value="#2B3442"/><Setter Property="Foreground" Value="White"/><Setter Property="Padding" Value="6"/></Style>
  </Application.Resources>
 </Application>

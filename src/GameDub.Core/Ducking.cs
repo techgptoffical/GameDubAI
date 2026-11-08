@@ -2,17 +2,23 @@ using NAudio.CoreAudioApi;
 
 namespace GameDub.Core;
 
-public sealed class GameDuckingPlayer(IAudioPlayer inner) : IAudioPlayer
+public sealed class GameDuckingPlayer(IAudioPlayer inner) : IAudioPlayer,IPausableAudioPlayer
 {
     public int ProcessId { get; set; }
     public bool Enabled { get; set; }
     public float Level { get; set; } = .3f;
+    private readonly object gate=new();
+    private DuckLease? activeDuck;
+    private bool playing;
     public async Task PlayAsync(AudioClip clip, Action started, CancellationToken token)
     {
-        using var duck = Enabled && ProcessId > 0 ? new DuckLease(ProcessId, Level) : null;
-        await inner.PlayAsync(clip, started, token);
+        lock(gate) { playing=true;activeDuck=Enabled&&ProcessId>0?new DuckLease(ProcessId,Level):null; }
+        try { await inner.PlayAsync(clip, started, token); }
+        finally { lock(gate) { playing=false;activeDuck?.Dispose();activeDuck=null; } }
     }
-    public void Stop() => inner.Stop();
+    public void Stop() { inner.Stop();lock(gate) { activeDuck?.Dispose();activeDuck=null; } }
+    public void Pause() { if(inner is IPausableAudioPlayer p)p.Pause();lock(gate) { activeDuck?.Dispose();activeDuck=null; } }
+    public void Resume() { lock(gate)if(playing&&activeDuck is null&&Enabled&&ProcessId>0)activeDuck=new(ProcessId,Level);if(inner is IPausableAudioPlayer p)p.Resume(); }
     private sealed class DuckLease : IDisposable
     {
         private readonly List<(AudioSessionControl Session, float Original, float Applied)> sessions = new();

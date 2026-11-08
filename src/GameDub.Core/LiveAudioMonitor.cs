@@ -30,7 +30,8 @@ public sealed class LiveAudioMonitor(LocalWorker recognizer)
                     game = replacement;
                 }
                 var nowForeground = GameWindows.GetForegroundWindow() == game.Handle;
-                if (wasForeground && !nowForeground) router.Interrupt();
+                if (wasForeground && !nowForeground) { if(router is IPausableDialogueSink p)p.Pause("Game lost foreground");else router.Interrupt(); }
+                if(!wasForeground&&nowForeground&&router is IPausableDialogueSink resume)resume.Resume();
                 wasForeground = nowForeground;
                 await Task.Delay(250, running.Token);
             }
@@ -46,7 +47,7 @@ public sealed class LiveAudioMonitor(LocalWorker recognizer)
                 if (!GameWindows.IsAlive(game)) continue; // The watchdog rebinds or cancels the selected process.
                 if (GameWindows.GetForegroundWindow() != game.Handle)
                 {
-                    if (foreground) { router.Interrupt(); using var reset = await recognizer.RequestAsync(new { op = "reset" }, running.Token); foreground = false; }
+                    if (foreground) { if(router is IPausableDialogueSink p)p.Pause("Game lost foreground");else router.Interrupt(); using var reset = await recognizer.RequestAsync(new { op = "reset" }, running.Token); foreground = false; }
                     continue;
                 }
                 foreground = true;

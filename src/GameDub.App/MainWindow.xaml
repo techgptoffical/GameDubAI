@@ -11,14 +11,38 @@
     <WrapPanel Margin="0,12,0,0"><Button Content="2. Select subtitle region" Click="Region_Click"/><Button x:Name="PickGameButton" Content="Pick game in 5 seconds" Click="PickGame_Click"/><Button Content="Test demo (not your game)" Click="Demo_Click"/></WrapPanel>
     <TextBlock x:Name="RegionStatus" Text="Select a small region around English subtitles. Use a borderless/windowed game." Foreground="#8D9BB0" FontSize="12" Margin="0,8,0,20"/>
     <DockPanel Margin="0,0,0,14"><TextBlock Text="Dialogue source" VerticalAlignment="Center" Margin="0,0,12,0"/><ComboBox x:Name="InputMode"><ComboBoxItem Content="Subtitles (recommended)"/><ComboBoxItem Content="Automatic (subtitles + audio fallback)"/><ComboBoxItem Content="Game audio (experimental offline ASR)"/></ComboBox></DockPanel>
+    <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+     <StackPanel><TextBlock Text="Dialogue policy"/><ComboBox x:Name="PolicyMode" Margin="0,5,8,0"><ComboBoxItem Content="Story Complete"/><ComboBoxItem Content="Live Sync"/></ComboBox></StackPanel>
+     <StackPanel Grid.Column="1"><TextBlock Text="Speaker for unlabeled subtitles (manual)"/><ComboBox x:Name="ManualCharacter" SelectionChanged="ManualCharacter_Changed" Margin="0,5,0,0"/></StackPanel>
+    </Grid>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
      <StackPanel><TextBlock Text="Voice engine" Foreground="#AAB6C8"/><TextBlock x:Name="EngineLabel" Text="Kokoro · local neural Hindi" Margin="0,6,0,0"/></StackPanel>
      <StackPanel Grid.Column="1"><TextBlock Text="Performance mode" Foreground="#AAB6C8"/><ComboBox x:Name="Mode" Margin="0,5,0,0" SelectionChanged="Mode_Changed"><ComboBoxItem Content="Balanced"/><ComboBoxItem Content="Quality"/><ComboBoxItem Content="Performance"/></ComboBox></StackPanel>
     </Grid>
     <TextBlock Text="Voice quality needs your listening review. Kokoro has no reliable emotional acting controls." Foreground="#8D9BB0" FontSize="12" Margin="0,12,0,18"/>
     <WrapPanel><Button x:Name="StartButton" Content="Start dubbing" Background="#3577CC" FontWeight="SemiBold" Click="Start_Click"/><Button Content="Stop / cancel speech" Click="Stop_Click"/></WrapPanel>
+    <WrapPanel><Button Content="Catch up remembered dialogue" Click="CatchUp_Click"/><Button Content="Scene skipped • clear speech" Click="ClearScene_Click"/></WrapPanel>
+    <TextBlock x:Name="BacklogStatus" Text="Story Complete keeps dialogue in History. Unlabeled speakers use your selected fallback voice." Foreground="#A7C9F6" TextWrapping="Wrap" Margin="0,8,0,4"/>
     <GroupBox Header="Latest dialogue"><StackPanel><TextBlock Text="ENGLISH" Foreground="#8291A7" FontSize="10"/><TextBlock x:Name="Original" Text="Waiting for dialogue…" FontSize="16" Margin="0,7,0,18"/><TextBlock Text="HINDI" Foreground="#8291A7" FontSize="10"/><TextBlock x:Name="Hindi" Text="हिंदी संवाद यहाँ दिखेगा।" FontFamily="Nirmala UI" FontSize="23" Margin="0,7,0,5"/><TextBlock x:Name="LineSource" FontSize="11" Foreground="#91A1B9"/></StackPanel></GroupBox>
     <TextBlock Text="For music and effects: lower only the game's dialogue volume yourself and keep subtitles enabled. Optional ducking lowers the selected game's entire mix while Hindi plays." Foreground="#9BA9BD" FontSize="12" Margin="0,14,0,0"/>
+   </StackPanel></ScrollViewer></TabItem>
+   <TabItem Header="History"><StackPanel Margin="0,12,0,0"><TextBlock Text="Every captured event is stored locally. Unspoken and skipped lines remain available for replay." TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <DataGrid x:Name="DialogueHistory" Height="420" IsReadOnly="True" AutoGenerateColumns="False" SelectionMode="Single" Background="#1B2028" Foreground="#ECEFF4"><DataGrid.Columns>
+     <DataGridTextColumn Header="#" Binding="{Binding Sequence}" Width="45"/><DataGridTextColumn Header="Speaker" Binding="{Binding Speaker}" Width="90"/>
+     <DataGridTextColumn Header="English" Binding="{Binding English}" Width="*"/><DataGridTextColumn Header="Hindi" Binding="{Binding Hindi}" Width="*"/>
+     <DataGridTextColumn Header="Speech" Binding="{Binding PlaybackState}" Width="85"/><DataGridTextColumn Header="Reason" Binding="{Binding CancellationReason}" Width="120"/>
+    </DataGrid.Columns></DataGrid><WrapPanel Margin="0,10,0,0"><Button Content="Replay selected line" Click="ReplayHistory_Click"/><Button Content="Catch up current scene" Click="CatchUp_Click"/></WrapPanel>
+    <TextBlock x:Name="HistoryDetail" TextWrapping="Wrap" Foreground="#A7C9F6" Margin="0,10,0,0"/></StackPanel></TabItem>
+   <TabItem Header="Character Voices"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,12,0,10">
+    <TextBlock Text="Names come from explicit subtitle labels or your manual selection. Text alone does not identify gender." TextWrapping="Wrap"/>
+    <DataGrid x:Name="CharacterTable" Height="190" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="CharacterTable_Changed" Background="#1B2028" Foreground="#ECEFF4"><DataGrid.Columns>
+     <DataGridTextColumn Header="Character" Binding="{Binding Name}" Width="*"/><DataGridTextColumn Header="Voice" Binding="{Binding Voice}" Width="*"/><DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="100"/>
+    </DataGrid.Columns></DataGrid>
+    <TextBlock Text="Character label" Margin="0,10,0,4"/><TextBox x:Name="CharacterName"/>
+    <TextBlock Text="Hindi voice" Margin="0,10,0,4"/><ComboBox x:Name="CharacterVoice" DisplayMemberPath="Label"/>
+    <WrapPanel Margin="0,10,0,0"><Button Content="Save assignment / rename selected" Click="SaveCharacter_Click"/><Button Content="Preview voice" Click="PreviewCharacter_Click"/><Button Content="Reset mappings" Click="ResetCharacters_Click"/></WrapPanel>
+    <TextBlock Text="Fallback voice when identity is unknown" Margin="0,14,0,4"/><ComboBox x:Name="FallbackCharacterVoice" DisplayMemberPath="Label" SelectionChanged="FallbackCharacterVoice_Changed"/>
+    <TextBlock Text="Kokoro provides two male and two female Hindi voice identities. Timbre and emotional acting need listening review; it has no reliable emotion controls. Muted English audio plus unlabeled subtitles cannot automatically identify Michael or Franklin." Foreground="#91A1B9" TextWrapping="Wrap" FontSize="12" Margin="0,14,0,0"/>
    </StackPanel></ScrollViewer></TabItem>
    <TabItem Header="Voice lab"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,18,0,10">
     <TextBlock Text="Try a line before launching a game" FontSize="18" Margin="0,0,0,10"/>
@@ -30,7 +54,8 @@
     <WrapPanel><Button Content="Translate + play A" Click="Generate_Click"/><Button Content="Compare A / B" Click="Compare_Click"/><Button x:Name="ReplayButton" Content="Replay last" IsEnabled="False" Click="Replay_Click"/><Button Content="Stop" Click="Stop_Click"/></WrapPanel>
     <TextBlock x:Name="LabHindi" FontFamily="Nirmala UI" FontSize="23" Margin="0,22,0,10"/>
     <TextBlock Text="Rate the last playback (human review only)" Foreground="#AAB6C8"/><WrapPanel Margin="0,8,0,0"><ComboBox x:Name="Rating" Width="170"/><Button Content="Save rating" Click="Rating_Click" Margin="10,0,0,0"/></WrapPanel>
-    <TextBlock Text="Bundled examples use curated reference wording. Arbitrary text uses a small offline MT model; meaning, pronouns and slang need review. A/B changes voice identities, not model families." FontSize="12" Foreground="#91A1B9" Margin="0,16,0,0"/>
+    <TextBlock Text="Offline MT translates both examples and arbitrary text. Meaning, pronouns and slang need your review. A/B changes voice identities, not model families. Curated wording is used only in the explicitly selected test fixture mode." FontSize="12" Foreground="#91A1B9" Margin="0,16,0,0"/>
+    <GroupBox Header="Model listening comparison"><StackPanel><TextBlock Text="Actual locally generated comparison WAVs. Text categories do not prove emotional delivery. Piper samples have noncommercial research restrictions." FontSize="12" Foreground="#91A1B9"/><ComboBox x:Name="BenchmarkSamples" DisplayMemberPath="Label" Margin="0,8,0,8"/><WrapPanel><Button Content="Play comparison sample" Click="PlayBenchmark_Click"/><Button Content="Refresh samples" Click="RefreshBenchmarks_Click"/></WrapPanel></StackPanel></GroupBox>
    </StackPanel></ScrollViewer></TabItem>
    <TabItem Header="Settings"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,18,0,10">
     <TextBlock Text="Audio output"/><ComboBox x:Name="Outputs" Margin="0,6,0,12"/>

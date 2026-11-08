@@ -84,7 +84,9 @@ public partial class MainWindow
         if (version != selectionVersion || closing) return;
         if (next is null)
         {
-            profile = new() { DefaultVoice = "hf_alpha" };
+            eventStore?.Dispose();eventStore=null;DialogueHistory.ItemsSource=null;
+            profile = new() { DefaultVoice = "hm_omega" };
+            RefreshCharacters();
             ProfileJson.Text = JsonSerializer.Serialize(profile, Json.Options); ShowRegion(); ShowTarget();
             SetStatus("Choose your running game above. A closed demo/launcher cannot be used for dubbing.");
             return;
@@ -93,11 +95,14 @@ public partial class MainWindow
         {
             var id = string.Concat(next.Name.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_'));
             var path = Path.Combine(Paths.Profiles, id + ".json");
-            try { profile = File.Exists(path) ? Json.Read<GameProfile>(path) : new() { GameId = id, DefaultVoice = "hf_alpha" }; }
-            catch (Exception error) { profile = new() { GameId = id, DefaultVoice = "hf_alpha" }; Fail(error); }
+            try { profile = File.Exists(path) ? Json.Read<GameProfile>(path) : new() { GameId = id, DefaultVoice = "hm_omega" }; }
+            catch (Exception error) { profile = new() { GameId = id, DefaultVoice = "hm_omega" }; Fail(error); }
         }
+        if(CharacterVoices.MigrateKnownGame(profile))SaveVoiceProfile();
+        OpenDialogueHistory();
         ProfileJson.Text = JsonSerializer.Serialize(profile, Json.Options);
         ShowRegion(); ShowTarget();
+        RefreshCharacters();
         if (session is null)
             SetStatus(next.ProcessId == Environment.ProcessId ? "Test demo selected. Select the real game above to dub actual gameplay." : $"Selected {next.Title} ({next.Name}). Enable English subtitles and choose their region.");
     }

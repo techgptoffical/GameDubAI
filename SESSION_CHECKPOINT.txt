@@ -1,0 +1,9 @@
+Session stopped at the user's request before PC shutdown, 2026-11-08.
+V2 source is saved. Do not call the overhaul complete.
+Latest targeted tests: 40/40 passed, artifacts/tests/20261108-003750/results.json.
+Broader integration: 47/47 passed, artifacts/tests/20261108-003423/results.json.
+Real rendered-caption/local-model/WASAPI test: 50 captured, 50 completed, no scheduler drops; artifacts/tests/20261108-002721/v2-speech/report.json. Catch-up was used; median observed-to-playback latency 44.7 seconds. This is not a real-game acceptance test.
+Piper: 10 comparison WAVs generated in artifacts/v2-voices. Noncommercial model restrictions apply. No human quality ratings.
+Chatterbox Q4: generated one builtin-reference Hindi comparison WAV; 82.6 seconds generation. Remaining benchmark stopped at user's request. No complete benchmark or naturalness conclusion.
+build/GameDubAI-v2 exists but predates the latest UI/source edits. Run GameDub.cmd still points at the older build. Resume by rebuilding and checking V2 before updating the launcher.
+Remaining: final UI/game acceptance, model-quality decision, updated documentation/license notices, packaging and launcher. No paid APIs or stored credentials used.
