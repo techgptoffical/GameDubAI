@@ -73,6 +73,8 @@ public sealed class LocalWorker(string kind) : IDisposable
         finally { gate.Release(); }
     }
     public async Task WarmAsync(CancellationToken token) { using var result = await RequestAsync(new { op = "warmup" }, token); }
+    /// <summary>Stops the model process to free its memory; the worker stays usable and restarts on the next request.</summary>
+    public void Release() { try { if (process is { HasExited: false }) process.Kill(true); } catch (InvalidOperationException) { } }
     public void Dispose()
     {
         if (disposed) return;
@@ -155,6 +157,10 @@ public sealed class NaturalVoice(LocalWorker worker, string mode = "Balanced") :
     public IReadOnlyList<LocalizedLine> DeliveryChunks(LocalizedLine line) => SpeechDelivery.Chunks(line);
     public async Task<AudioClip> SynthesizeAsync(LocalizedLine line, string voice, CancellationToken token)
     {
+        // Never load the GPU voice into a game that has filled video memory (this crashed GTA once).
+        // Throwing makes FallbackVoice switch to the CPU Kokoro voice for the rest of the session.
+        if (GpuGuard.VoiceShed) throw new InvalidOperationException("Natural voice released to keep the game's video memory free: " + GpuGuard.ShedReason);
+        if (worker.ProcessId is null && !GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB, out var why)) { GpuGuard.Shed(true, false, why); throw new InvalidOperationException("Natural voice not loaded: " + why); }
         using var result = await worker.RequestAsync(new { text = line.Hindi, voice, speed = mode == "Performance" ? 1.08 : 1.0, steps = Steps }, token);
         return new(Convert.FromBase64String(result.RootElement.GetProperty("pcm").GetString()!), "pcm_" + result.RootElement.GetProperty("rate").GetInt32(), Identity);
     }

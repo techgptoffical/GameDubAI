@@ -36,9 +36,11 @@ public sealed class LlamaServer : IDisposable
             ObjectDisposedException.ThrowIf(disposed, this);
             if (process is { HasExited: false }) return;
             if (!Available) throw new InvalidOperationException("Conversational Hindi model is not installed (runtime-llama / models/llm).");
+            if (GpuGuard.LlmShed) throw new InvalidOperationException("Conversational model released to keep the game's video memory free: " + GpuGuard.ShedReason);
+            if (!GpuGuard.CanLoad(GpuGuard.LlmMiB, out var why)) { GpuGuard.Shed(false, true, why); throw new InvalidOperationException("Conversational model not loaded: " + why); }
             port = FreePort();
             var info = new ProcessStartInfo(Executable) { WorkingDirectory = Path.GetDirectoryName(Executable)!, CreateNoWindow = true, UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
-            foreach (var arg in new[] { "-m", ModelPath, "--host", "127.0.0.1", "--port", port.ToString(), "-ngl", "99", "-c", "4096", "--parallel", "1",
+            foreach (var arg in new[] { "-m", ModelPath, "--host", "127.0.0.1", "--port", port.ToString(), "-ngl", "99", "-c", "2048", "--parallel", "1", "-ot", "per_layer=CPU",
                 "-t", "2", "--no-webui", "-fa", "on", "--reasoning-format", "deepseek" }) info.ArgumentList.Add(arg);
             foreach (var name in info.Environment.Keys.Where(n => Regex.IsMatch(n, "API_KEY|TOKEN|SECRET|PASSWORD", RegexOptions.IgnoreCase)).ToArray()) info.Environment.Remove(name);
             process = Process.Start(info) ?? throw new IOException("Could not start the local Hindi language model.");
@@ -82,6 +84,11 @@ public sealed class LlamaServer : IDisposable
             return (text, watch.Elapsed.TotalMilliseconds, tokens);
         }
         finally { gate.Release(); }
+    }
+    /// <summary>Frees the GPU memory now (game needs it); with GpuGuard.LlmShed set it will not restart.</summary>
+    public void Release()
+    {
+        try { if (process is { HasExited: false }) process.Kill(true); } catch (InvalidOperationException) { }
     }
     public void Dispose()
     {

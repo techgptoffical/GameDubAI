@@ -36,6 +36,21 @@ internal static class DialogueRepairTests
             Check(!localizer.BuildPrompt(new("I'm done.","Unknown"),profile,[]).Contains("male"),"Gender guessed for unknown speaker");
             return Task.CompletedTask;
         });
+        await test("GPU guard: released natural voice never loads, CPU voice speaks instead",async()=>
+        {
+            GpuGuard.Shed(true,false,"test: game filled video memory");
+            try
+            {
+                using var worker=new LocalWorker("tts-f5");
+                var fallbackUsed=false;var notified="";
+                var voice=new FallbackVoice(new NaturalVoice(worker),new StubVoice(()=>fallbackUsed=true),m=>notified=m);
+                var clip=await voice.SynthesizeAsync(new("ठीक है।","neutral","test"),"hm_omega",default);
+                Check(fallbackUsed&&clip.Bytes.Length>0,"Fallback voice did not speak");
+                Check(worker.ProcessId is null,"Natural voice process was started while the GPU was reserved for the game");
+                Check(notified.Contains("video memory"),"User was not told why the voice changed: "+notified);
+            }
+            finally { GpuGuard.Reset(); }
+        });
         await test("long Hindi delivery retains every word in bounded clauses",()=>
         {
             var text="हमें स्टेशन पहुँचने से पहले माइकल से बात करनी होगी, क्योंकि पुल बंद है और दूसरी सड़क पर पुलिस हमारा इंतज़ार कर रही है। "+
@@ -73,5 +88,10 @@ internal static class DialogueRepairTests
                 Json.Write(Path.Combine(root,"long-dialogue-translation.json"),new { english,hindi=translated.Hindi,note="Actual model output; numeric coverage checks are not a human meaning-accuracy score." });
             });
         }
+    }
+    private sealed class StubVoice(Action used) : IVoiceProvider
+    {
+        public string Identity=>"stub-cpu-voice";
+        public Task<AudioClip> SynthesizeAsync(LocalizedLine line,string voice,CancellationToken token) { used();return Task.FromResult(new AudioClip(new byte[480],"pcm_24000",Identity)); }
     }
 }
