@@ -10,7 +10,7 @@ public sealed class LocalWorker(string kind) : IDisposable
     public string Kind => kind;
     private Process? process;
     private readonly SemaphoreSlim gate = new(1);
-    private bool disposed;
+    private bool disposed, coldStart;
     public int? ProcessId => process is { HasExited: false } ? process.Id : null;
     public long WorkingSetBytes { get { try { process?.Refresh(); return process is { HasExited: false } ? process.WorkingSet64 : 0; } catch (InvalidOperationException) { return 0; } } }
     public async Task<JsonDocument> RequestAsync(object payload, CancellationToken token)
@@ -36,7 +36,7 @@ public sealed class LocalWorker(string kind) : IDisposable
             if (process is null || process.HasExited)
             {
                 var bundled = Path.Combine(Paths.Workspace, "runtime", "python.exe");
-                var python = File.Exists(bundled) ? bundled : Path.Combine(Paths.Workspace, ".venv", "Scripts", "python.exe");
+                var python = kind == "tts-f5" ? NaturalVoice.Python : File.Exists(bundled) ? bundled : Path.Combine(Paths.Workspace, ".venv", "Scripts", "python.exe");
                 if (!File.Exists(python)) throw new InvalidOperationException("Local runtime missing. Run Setup.ps1 first.");
                 var info = new ProcessStartInfo(python)
                 {
@@ -45,18 +45,18 @@ public sealed class LocalWorker(string kind) : IDisposable
                     StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = new UTF8Encoding(false)
                 };
                 info.ArgumentList.Add("-u");
-                info.ArgumentList.Add(Path.Combine(Paths.Workspace, "workers", "local_worker.py"));
+                info.ArgumentList.Add(Path.Combine(Paths.Workspace, "workers", kind == "tts-f5" ? "indicf5_worker.py" : "local_worker.py"));
                 info.ArgumentList.Add(kind);
                 // No secrets inherited by AI workers. No worker has any network use.
                 foreach (var name in info.Environment.Keys.Where(n => Regex.IsMatch(n, "API_KEY|TOKEN|SECRET|PASSWORD", RegexOptions.IgnoreCase)).ToArray()) info.Environment.Remove(name);
-                process = Process.Start(info) ?? throw new IOException("Could not start local model worker.");
+                process = Process.Start(info) ?? throw new IOException("Could not start local model worker."); coldStart = true;
                 ChildProcessJob.Attach(process);
                 try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch (System.ComponentModel.Win32Exception) { }
                 process.ErrorDataReceived += (_, _) => { }; // Drain diagnostics; never mix logs with JSON or log private dialogue.
                 process.BeginErrorReadLine();
             }
             var running = process;
-            using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(coldStart ? 180 : 60)); coldStart = false; // first request loads the model
             using var abort = watchdog.Token.Register(() => { try { if (!running.HasExited) running.Kill(true); } catch (InvalidOperationException) { } });
             await running.StandardInput.WriteLineAsync(JsonSerializer.Serialize(payload).AsMemory(), watchdog.Token);
             await running.StandardInput.FlushAsync(watchdog.Token);
@@ -143,6 +143,23 @@ public sealed class KokoroVoice(LocalWorker worker, string mode = "Balanced") : 
     }
 }
 
+/// <summary>IndicF5 (MIT) GPU voice prompted by licensed synthetic Parler-TTS speakers; Kokoro voice IDs map to the same four profiles.</summary>
+public sealed class NaturalVoice(LocalWorker worker, string mode = "Balanced") : IChunkedVoiceProvider
+{
+    public static string Python => Path.Combine(Paths.Workspace, "runtime-torch", "Scripts", "python.exe");
+    public const string TtsName = "IndicF5 Hindi natural (GPU, recommended)";
+    public static bool Available => File.Exists(Python) && File.Exists(Path.Combine(Paths.Workspace, "models", "indicf5", "model.safetensors"))
+        && new[] { "male_deep", "male_young", "female_expr", "female_calm" }.All(p => File.Exists(Path.Combine(Paths.Workspace, "models", "voice-profiles", p + ".wav")));
+    private int Steps => mode == "Quality" ? 16 : 8;
+    public string Identity => $"indicf5-nfe{Steps}-parler-refs-v1:" + mode;
+    public IReadOnlyList<LocalizedLine> DeliveryChunks(LocalizedLine line) => SpeechDelivery.Chunks(line);
+    public async Task<AudioClip> SynthesizeAsync(LocalizedLine line, string voice, CancellationToken token)
+    {
+        using var result = await worker.RequestAsync(new { text = line.Hindi, voice, speed = mode == "Performance" ? 1.08 : 1.0, steps = Steps }, token);
+        return new(Convert.FromBase64String(result.RootElement.GetProperty("pcm").GetString()!), "pcm_" + result.RootElement.GetProperty("rate").GetInt32(), Identity);
+    }
+}
+
 public static class Providers
 {
     public const string ConversationalTranslator = "Conversational Hindi (local AI, recommended)";
@@ -154,8 +171,10 @@ public static class Providers
         return s.Translator.StartsWith("Conversational") && llm is not null && LlamaServer.Available
             ? new ConversationalLocalizer(llm,new OfflineLocalizer(worker,1),!s.DialoguePolicy.StartsWith("Story")) : mt;
     }
-    public static IVoiceProvider Voice(AppSettings s, LocalWorker worker,LocalWorker? gpu = null,Action<string>? fallbackNotice = null)
+    public static IVoiceProvider Voice(AppSettings s, LocalWorker worker,LocalWorker? gpu = null,Action<string>? fallbackNotice = null,LocalWorker? natural = null)
     {
+        if(s.Tts.StartsWith("IndicF5") && natural is not null && NaturalVoice.Available)
+            return new CachedVoice(new FallbackVoice(new NaturalVoice(natural,s.PerformanceMode),new KokoroVoice(worker,s.PerformanceMode),fallbackNotice));
         IVoiceProvider voice=s.Tts.StartsWith("eSpeak") ? new EspeakVoice() : new KokoroVoice(worker,s.PerformanceMode);
         if(s.Tts.Contains("GPU") && gpu is not null)voice=new FallbackVoice(new KokoroVoice(gpu,s.PerformanceMode),voice,fallbackNotice);
         return new CachedVoice(voice);

@@ -5,8 +5,9 @@ public sealed record VoiceAssignment(string Speaker,string VoiceId,string Eviden
 public sealed record CharacterVoiceProfile(string VoiceId,string Category="Unspecified",string Timbre="",string DefaultDelivery="neutral");
 public static class CharacterVoices
 {
-    public static readonly HindiVoice[] Catalog=[new("hm_omega","Omega · Hindi male","Male","Omega model voice"),new("hm_psi","Psi · Hindi male","Male","Psi model voice"),
-        new("hf_alpha","Alpha · Hindi female","Female","Alpha model voice"),new("hf_beta","Beta · Hindi female","Female","Beta model voice")];
+    // Same IDs drive both engines: Kokoro voices, or the IndicF5 profiles made from Parler speakers.
+    public static readonly HindiVoice[] Catalog=[new("hm_omega","Deep male (Omega / Rohit)","Male","Deep, calm adult male"),new("hm_psi","Young male (Psi / Aman)","Male","Young, energetic male"),
+        new("hf_alpha","Expressive female (Alpha / Divya)","Female","Natural, expressive female"),new("hf_beta","Calm female (Beta / Rani)","Female","Mature, calm female")];
     public static bool IsKnownVoice(string id)=>Catalog.Any(v=>v.Id==id);
     public static VoiceAssignment Assign(Dialogue line,GameProfile profile)
     {

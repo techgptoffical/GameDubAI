@@ -32,3 +32,9 @@ research/sublens/
 models/**/*.zip
 runtime-llama/
 models/llm/
+models/indicf5/
+models/indic-parler-tts/
+runtime-torch/
+runtime-hfcli/
+models/whisper-large-v3/
+models/voice-profiles/*.wav

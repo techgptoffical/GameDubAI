@@ -1,0 +1,1 @@
+Synthetic reference voices generated locally with ai4bharat/indic-parler-tts (Apache-2.0) named speakers Rohit, Aman, Divya, Rani. Not recordings of real people.

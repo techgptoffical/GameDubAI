@@ -34,11 +34,17 @@ public sealed class AppSettings
     {
         AppSettings settings;
         try { settings = Json.Read<AppSettings>(Path.Combine(Paths.Root, "settings.json")); }
-        catch (Exception e) when (e is IOException or JsonException) { return new() { SettingsVersion = 2 }; }
+        catch (Exception e) when (e is IOException or JsonException) { return new() { SettingsVersion = 3, Tts = NaturalVoice.Available ? NaturalVoice.TtsName : "Kokoro Hindi GPU (DirectML + CPU fallback)" }; }
+        if (settings.SettingsVersion < 3)
+        {
+            // Natural IndicF5 voice: make it the default once when installed; Kokoro stays selectable.
+            if (NaturalVoice.Available && settings.Tts.StartsWith("Kokoro")) settings.Tts = NaturalVoice.TtsName;
+            if (settings.SettingsVersion == 2) { settings.SettingsVersion = 3; try { settings.Save(); } catch (IOException) { } }
+        }
         if (settings.SettingsVersion < 2)
         {
             // One-time move to the repaired defaults: conversational Hindi + Live Cinematic. Voice/output kept.
-            settings.SettingsVersion = 2;
+            settings.SettingsVersion = 3;
             if (!settings.Translator.StartsWith("Local sample")) settings.Translator = "Conversational Hindi (local AI, recommended)";
             settings.DialoguePolicy = "Live Cinematic (recommended)";
             try { settings.Save(); } catch (IOException) { }

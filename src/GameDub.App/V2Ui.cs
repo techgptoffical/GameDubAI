@@ -130,7 +130,7 @@ public partial class MainWindow
         try
         {
             mixer.ProcessId=0;
-            var provider=Providers.Voice(settings,voiceWorker,gpuVoiceWorker,SetStatus);
+            var provider=Providers.Voice(settings,voiceWorker,gpuVoiceWorker,SetStatus,naturalVoiceWorker);
             var clip=await provider.SynthesizeAsync(new("तुम आ गए। मुझे लगा था अब हम कभी नहीं मिलेंगे।","neutral","voice-preview"),voice.Id,run.Token);
             await audio.PlayAsync(clip,()=>SetStatus($"Previewing {voice.Label}; no emotion control is claimed."),run.Token);
         }
@@ -154,7 +154,7 @@ public partial class MainWindow
             ReadSettings();mixer.ProcessId=0;
             var localized=string.IsNullOrWhiteSpace(item.Hindi)?await Providers.Localizer(settings,translationWorker,nllbWorker,llm).TranslateAsync(item.ToDialogue(),profile,[],run.Token):new LocalizedLine(item.Hindi,"neutral",item.TranslationSource);
             var voiceId=profile.VoiceFor(item.Speaker);if(!CharacterVoices.IsKnownVoice(voiceId))voiceId=item.VoiceId;
-            var provider=Providers.Voice(settings,voiceWorker,gpuVoiceWorker,SetStatus);
+            var provider=Providers.Voice(settings,voiceWorker,gpuVoiceWorker,SetStatus,naturalVoiceWorker);
             var key=TranslationTextCache.Hash(localized.Hindi+"|"+voiceId+"|"+provider.Identity);
             var cached=key==item.AudioCacheKey?new DialogueCache().Get(key):null;
             var clip=cached?.Clip??await provider.SynthesizeAsync(localized,voiceId,run.Token);

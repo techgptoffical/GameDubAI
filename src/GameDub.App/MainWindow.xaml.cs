@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private readonly LocalWorker nllbWorker = new("translate-nllb");
     private readonly LocalWorker voiceWorker = new("tts");
     private readonly LocalWorker gpuVoiceWorker = new("tts-dml");
+    private readonly LocalWorker naturalVoiceWorker = new("tts-f5");
     private readonly LocalWorker asrWorker = new("asr");
     private readonly LlamaServer llm = new();
     private readonly WasapiPlayer audio = new();
@@ -85,7 +86,8 @@ public partial class MainWindow : Window
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             // Marian stays warm in Conversational mode as the meaning-guard fallback.
             var translator=settings.Translator.StartsWith("Offline NLLB")?nllbWorker:translationWorker;
-            var tts=settings.Tts.Contains("GPU")?gpuVoiceWorker:voiceWorker;
+            if(settings.Tts.StartsWith("IndicF5")&&!NaturalVoice.Available) { settings.Tts="Kokoro Hindi GPU (DirectML + CPU fallback)";SelectCombo(Tts,settings.Tts);SetStatus("Natural IndicF5 voice is not installed; using Kokoro."); }
+            var tts=settings.Tts.StartsWith("IndicF5")?naturalVoiceWorker:settings.Tts.Contains("GPU")?gpuVoiceWorker:voiceWorker;
             // Sequential initialization avoids overlapping model-load allocation peaks on 16GB PCs.
             try { await translator.WarmAsync(timeout.Token); }
             catch(Exception failure)when(translator==nllbWorker&&failure is not OperationCanceledException)
@@ -94,7 +96,7 @@ public partial class MainWindow : Window
                 translator=translationWorker;await translator.WarmAsync(timeout.Token);
                 SetStatus("NLLB could not load; using the smaller offline Marian translator. "+failure.Message);
             }
-            await tts.WarmAsync(timeout.Token);
+            using (var voiceTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(tts == naturalVoiceWorker ? 200 : 60))) await tts.WarmAsync(voiceTimeout.Token); // natural voice loads PyTorch + model on first start
             Readiness.Text = "Local models ready • Windows subtitle OCR • selected-device WASAPI output";
             SetStatus("Ready. Try Voice lab, or open the subtitle demo."); StartButton.IsEnabled = true;
             Json.Write(Path.Combine(Paths.Root, "startup-health.json"), new { at = DateTimeOffset.Now, ready = true, runtime = File.Exists(Path.Combine(Paths.Workspace, "runtime", "python.exe")) ? "bundled Python" : "project venv",translationEngine=translator.Kind,voiceEngine=tts.Kind, translationMiB = translator.WorkingSetBytes / 1048576.0, voiceMiB = tts.WorkingSetBytes / 1048576.0 });
@@ -191,13 +193,13 @@ public partial class MainWindow : Window
         settings.DuckGameAudio = Ducking.IsChecked == true;
         audio.DeviceId = settings.OutputDevice; audio.Volume = settings.Volume;
         mixer.Enabled = settings.DuckGameAudio; mixer.Level = settings.DuckLevel;
-        EngineLabel.Text = settings.Tts.StartsWith("Kokoro") ? settings.Tts.Contains("GPU")?"Kokoro · DirectML GPU, CPU fallback":"Kokoro · CPU neural Hindi" : "eSpeak NG · robotic test fallback";
+        EngineLabel.Text = settings.Tts.StartsWith("IndicF5") ? "IndicF5 · natural Hindi on GPU, Kokoro CPU fallback" : settings.Tts.StartsWith("Kokoro") ? settings.Tts.Contains("GPU")?"Kokoro · DirectML GPU, CPU fallback":"Kokoro · CPU neural Hindi" : "eSpeak NG · robotic test fallback";
     }
     private DubbingPipeline MakePipeline(GameProfile selectedProfile, int? budget = null)
     {
         ReadSettings();
         var ageBudget = settings.PerformanceMode switch { "Quality" => Math.Max(12000, settings.MaxAgeMs), "Performance" => Math.Min(4000, settings.MaxAgeMs), _ => Math.Max(8000, settings.MaxAgeMs) };
-        var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker,nllbWorker,llm), Providers.Voice(settings, voiceWorker,gpuVoiceWorker,SetStatus), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
+        var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker,nllbWorker,llm), Providers.Voice(settings, voiceWorker,gpuVoiceWorker,SetStatus,naturalVoiceWorker), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
         pipeline.Trace = diagnosticTrace;
         pipeline.Localized += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = LabHindi.Text = localized.Hindi; ReplayButton.IsEnabled = false; });
         pipeline.Playing += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = localized.Hindi; LineSource.Text = $"Speaking • {line.Speaker} • {localized.Source}"; });
@@ -344,7 +346,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var workers = new[] { translationWorker,nllbWorker, voiceWorker,gpuVoiceWorker, asrWorker }.Select(w => new { kind=w.Kind,pid = w.ProcessId, workingSetMiB = w.WorkingSetBytes / 1048576.0 }).ToArray();
+            var workers = new[] { translationWorker,nllbWorker, voiceWorker,gpuVoiceWorker,naturalVoiceWorker, asrWorker }.Select(w => new { kind=w.Kind,pid = w.ProcessId, workingSetMiB = w.WorkingSetBytes / 1048576.0 }).ToArray();
             Json.Write(Path.Combine(Paths.Root, "diagnostics.json"), new { at = DateTimeOffset.Now, voiceLab = measurements, currentSession = currentPipeline?.Metrics.Snapshot(), dropped=router?.DroppedCount,pending=router?.PendingCount, traceDirectory=diagnosticTrace?.DirectoryPath,traceError=diagnosticTrace?.Error,modelWorkers = workers, note = "Only GameDub-owned workers. No command lines, FPS or acoustic measurement." });
             SetStatus("Exported local-settings/diagnostics.json");
         }
@@ -357,7 +359,7 @@ public partial class MainWindow : Window
         targetLifetime.Cancel();
         e.Cancel = true;
         await StopAllAsync();
-        closing = true; historyWatch.Stop();eventStore?.Dispose();demo?.Close(); translationWorker.Dispose(); nllbWorker.Dispose(); voiceWorker.Dispose(); gpuVoiceWorker.Dispose(); asrWorker.Dispose(); llm.Dispose(); audio.Dispose();
+        closing = true; historyWatch.Stop();eventStore?.Dispose();demo?.Close(); translationWorker.Dispose(); nllbWorker.Dispose(); voiceWorker.Dispose(); gpuVoiceWorker.Dispose(); naturalVoiceWorker.Dispose(); asrWorker.Dispose(); llm.Dispose(); audio.Dispose();
         // Closing can complete synchronously when idle. Queue the second Close until WPF has
         // returned from the cancelled Closing event, avoiding a reentrant-close exception.
         _ = Dispatcher.BeginInvoke(new Action(Close));
