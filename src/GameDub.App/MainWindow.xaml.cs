@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     private readonly LocalWorker naturalVoiceWorker = new("tts-f5");
     private readonly LocalWorker asrWorker = new("asr");
     private readonly LlamaServer llm = new();
+    private string? geminiKey = ApiKeyStore.Load();
+    private GeminiClient? gemini;
     private GpuWatch? gpuWatch;
     private readonly WasapiPlayer audio = new();
     private readonly GameDuckingPlayer mixer;
@@ -50,6 +52,7 @@ public partial class MainWindow : Window
         ProfileJson.Text = JsonSerializer.Serialize(profile, Json.Options);
         initialized = true;
         InitializeV2Ui();
+        ShowGeminiKeyState();
         Loaded += async (_, _) =>
         {
             await RefreshGamesAsync();
@@ -82,7 +85,9 @@ public partial class MainWindow : Window
         SetStatus("Loading offline translation and Hindi voice models…");
         try
         {
-            if(settings.Translator.StartsWith("Conversational"))
+            gemini=new GeminiClient(()=>geminiKey,settings.GeminiModel);gemini.Notice+=SetStatus;
+            if(settings.Translator.StartsWith("Gemini")) _ = CheckGeminiAsync();
+            else if(settings.Translator.StartsWith("Conversational"))
             {
                 // Started first and alone: the 4 GB GPU model load should not overlap other model loads.
                 if(!LlamaServer.Available) { settings.Translator="Offline English → Hindi";SelectCombo(Translator,settings.Translator);SetStatus("Conversational Hindi model is not installed; using the offline Marian translator."); }
@@ -97,7 +102,7 @@ public partial class MainWindow : Window
             if(settings.Tts.StartsWith("IndicF5")&&!NaturalVoice.Available) { settings.Tts="Kokoro Hindi GPU (DirectML + CPU fallback)";SelectCombo(Tts,settings.Tts);SetStatus("Natural IndicF5 voice is not installed; using Kokoro."); }
             var tts=settings.Tts.StartsWith("IndicF5")?naturalVoiceWorker:settings.Tts.Contains("GPU")?gpuVoiceWorker:voiceWorker;
             if(tts==naturalVoiceWorker&&!GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB,GpuGuard.NaturalVoiceCommitMiB,out var voiceWhy))
-            { GpuGuard.Shed(true,false,voiceWhy);tts=voiceWorker;SetStatus("Natural voice not loaded ("+voiceWhy+"). Using the light CPU Kokoro voice so the game keeps its memory."); }
+            { GpuGuard.Shed(true,false,voiceWhy);tts=LightVoiceWorker();SetStatus("Natural voice not loaded ("+voiceWhy+"). Using the light Kokoro voice so the game keeps its memory."); }
             // Sequential initialization avoids overlapping model-load allocation peaks on 16GB PCs.
             try { await translator.WarmAsync(timeout.Token); }
             catch(Exception failure)when(translator==nllbWorker&&failure is not OperationCanceledException)
@@ -108,7 +113,9 @@ public partial class MainWindow : Window
             }
             try { using var voiceTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(tts == naturalVoiceWorker ? 300 : 120)); await tts.WarmAsync(voiceTimeout.Token); } // natural voice loads PyTorch + model on first start
             catch(Exception failure)when(tts==naturalVoiceWorker)
-            { naturalVoiceWorker.Release();GpuGuard.Shed(true,false,"natural voice failed to start");tts=voiceWorker;await voiceWorker.WarmAsync(timeout.Token);SetStatus("Natural voice could not start; using the CPU Kokoro voice. "+failure.Message); }
+            { naturalVoiceWorker.Release();GpuGuard.Shed(true,false,"natural voice failed to start");tts=LightVoiceWorker();SetStatus("Natural voice could not start; using the light Kokoro voice. "+failure.Message);await WarmLightVoiceAsync(tts,timeout.Token); }
+            catch(Exception failure)when(tts==gpuVoiceWorker&&failure is not OperationCanceledException)
+            { gpuVoiceWorker.Release();tts=voiceWorker;await voiceWorker.WarmAsync(timeout.Token);SetStatus("GPU Kokoro voice could not start; CPU Kokoro speaks. "+failure.Message); }
             Readiness.Text = "Local models ready • Windows subtitle OCR • selected-device WASAPI output";
             SetStatus("Ready. Try Voice lab, or open the subtitle demo."); StartButton.IsEnabled = true;
             Json.Write(Path.Combine(Paths.Root, "startup-health.json"), new { at = DateTimeOffset.Now, ready = true, runtime = File.Exists(Path.Combine(Paths.Workspace, "runtime", "python.exe")) ? "bundled Python" : "project venv",translationEngine=translator.Kind,voiceEngine=tts.Kind, translationMiB = translator.WorkingSetBytes / 1048576.0, voiceMiB = tts.WorkingSetBytes / 1048576.0 });
@@ -120,6 +127,38 @@ public partial class MainWindow : Window
         }
         if (Environment.GetCommandLineArgs().Contains("--smoke-test")) Close();
     }
+    /// <summary>Kokoro on the GPU when it fits (about 1 s per line while a game fills the CPU), else on the CPU.</summary>
+    private LocalWorker LightVoiceWorker() =>
+        KokoroVoice.DirectMLAvailable && GpuGuard.CanLoad(GpuGuard.KokoroGpuMiB, GpuGuard.KokoroGpuCommitMiB, out _) ? gpuVoiceWorker : voiceWorker;
+    private async Task WarmLightVoiceAsync(LocalWorker worker, CancellationToken token)
+    {
+        try { await worker.WarmAsync(token); }
+        catch (Exception failure) when (worker == gpuVoiceWorker && failure is not OperationCanceledException)
+        { gpuVoiceWorker.Release(); await voiceWorker.WarmAsync(token); SetStatus("GPU Kokoro voice could not start; CPU Kokoro speaks. " + failure.Message); }
+    }
+    private async Task CheckGeminiAsync()
+    {
+        if (gemini is null) return;
+        if (!gemini.Configured) { SetStatus("Gemini is selected but no API key is saved. Add your key in Settings; the local translator is used until then."); return; }
+        try { using var t = new CancellationTokenSource(TimeSpan.FromSeconds(15)); var model = await gemini.ResolveModelAsync(t.Token); SetStatus($"Gemini connected ({model}). Subtitle lines are sent to Google for translation."); }
+        catch (Exception e) { SetStatus("Gemini is not reachable right now; the local translator is used. " + e.Message); }
+    }
+    private async void SaveGeminiKey_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ApiKeyStore.Save(GeminiKeyBox.Password); GeminiKeyBox.Clear(); geminiKey = ApiKeyStore.Load();
+            gemini?.Dispose(); gemini = new GeminiClient(() => geminiKey, settings.GeminiModel); gemini.Notice += SetStatus;
+            SelectCombo(Translator, Providers.GeminiTranslator); ReadSettings(); settings.Save(); ShowGeminiKeyState();
+            await CheckGeminiAsync();
+        }
+        catch (ArgumentException error) { SetStatus(error.Message); }
+    }
+    private void RemoveGeminiKey_Click(object sender, RoutedEventArgs e)
+    {
+        ApiKeyStore.Clear(); geminiKey = null; ShowGeminiKeyState(); SetStatus("Gemini key removed from this PC. The local translator is used.");
+    }
+    private void ShowGeminiKeyState() => GeminiKeyState.Text = geminiKey is null ? "No key saved." : "Key saved (encrypted for your Windows account).";
     private void SetStatus(string message)
     {
         if (closing) return;
@@ -136,7 +175,7 @@ public partial class MainWindow : Window
     private void Fail(Exception error)
     {
         if (error is OperationCanceledException) { SetStatus("Stopped. Obsolete dialogue cancelled."); return; }
-        SetStatus(error is System.Net.Http.HttpRequestException ? "Unexpected network operation blocked in offline build." : error.Message);
+        SetStatus(error is System.Net.Http.HttpRequestException ? "Network error: " + error.Message : error.Message);
     }
     private void RefreshOutputs()
     {
@@ -213,7 +252,7 @@ public partial class MainWindow : Window
         var ageBudget = settings.PerformanceMode switch { "Quality" => Math.Max(12000, settings.MaxAgeMs), "Performance" => Math.Min(4000, settings.MaxAgeMs), _ => Math.Max(8000, settings.MaxAgeMs) };
         // Models released for the game earlier come back only if video and system memory both fit again now.
         if (GpuGuard.TryRestore(out _)) SetStatus("Enough memory is free again; the natural voice / conversational model may reload.");
-        var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker,nllbWorker,llm), Providers.Voice(settings, voiceWorker,gpuVoiceWorker,SetStatus,naturalVoiceWorker), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
+        var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker,nllbWorker,llm,gemini), Providers.Voice(settings, voiceWorker,gpuVoiceWorker,SetStatus,naturalVoiceWorker), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
         pipeline.Trace = diagnosticTrace;
         pipeline.Localized += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = LabHindi.Text = localized.Hindi; ReplayButton.IsEnabled = false; });
         pipeline.Playing += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = localized.Hindi; LineSource.Text = $"Speaking • {line.Speaker} • {localized.Source}"; });
@@ -235,6 +274,7 @@ public partial class MainWindow : Window
     private async Task WarmForGameAsync(CancellationToken token)
     {
         if (GpuGuard.TryRestore(out _)) SetStatus("Enough memory is free now; loading the full-quality models.");
+        if (settings.Translator.StartsWith("Gemini") && gemini is { Configured: false }) SetStatus("Gemini has no API key yet; the local translator is used. Add the key in Settings.");
         if (settings.Translator.StartsWith("Conversational") && LlamaServer.Available && llm.ProcessId is null && !GpuGuard.LlmShed)
             try { SetStatus("Loading conversational Hindi model…"); using var limit = CancellationTokenSource.CreateLinkedTokenSource(token); limit.CancelAfter(TimeSpan.FromSeconds(300)); await llm.EnsureStartedAsync(limit.Token); }
             catch (Exception failure) when (!token.IsCancellationRequested) { SetStatus("Conversational model not loaded; Marian translates this session. " + failure.Message); }

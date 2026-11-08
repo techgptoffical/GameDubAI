@@ -15,6 +15,7 @@ public static class GpuGuard
 {
     public const int LlmMiB = 2600, NaturalVoiceMiB = 1800;
     public const int LlmCommitMiB = 3700, NaturalVoiceCommitMiB = 4200;
+    public const int KokoroGpuMiB = 700, KokoroGpuCommitMiB = 1300;
     /// <summary>Free VRAM that must remain after a GameDub model loads.</summary>
     public static int LoadReserveMiB { get; set; } = 2048;
     /// <summary>Below this much free VRAM during play, GameDub releases its GPU models.</summary>

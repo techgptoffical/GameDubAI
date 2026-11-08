@@ -132,11 +132,15 @@ public sealed class OfflineLocalizer(LocalWorker worker,int beamSize = 3) : ILoc
 
 public sealed class KokoroVoice(LocalWorker worker, string mode = "Balanced") : IChunkedVoiceProvider
 {
+    public static bool DirectMLAvailable => Directory.Exists(Path.Combine(Paths.Workspace, "runtime-dml")) && File.Exists(Path.Combine(Paths.Workspace, "models", "kokoro-dml-fp32.onnx"));
     public string Identity => "kokoro82m-v1-hf-promoted-fp32-hindi:clauses140-v4-tail80ms:"+(worker.Kind=="tts-dml"?"dml-depthwise-repair-v1":"cpu2-arena")+":" + mode;
     public IReadOnlyList<LocalizedLine> DeliveryChunks(LocalizedLine line) => SpeechDelivery.Chunks(line);
     public async Task<AudioClip> SynthesizeAsync(LocalizedLine line, string voice, CancellationToken token)
     {
         if (!new[] { "hf_alpha", "hf_beta", "hm_omega", "hm_psi" }.Contains(voice)) voice = "hf_alpha";
+        // GPU Kokoro loads only if the game keeps its memory; throwing hands the line to CPU Kokoro.
+        if (worker.Kind == "tts-dml" && worker.ProcessId is null && !GpuGuard.CanLoad(GpuGuard.KokoroGpuMiB, GpuGuard.KokoroGpuCommitMiB, out var why))
+            throw new InvalidOperationException("GPU Kokoro voice not loaded: " + why);
         // Kokoro has no documented Hindi emotional acting controls. Only a restrained speed choice.
         var speed = mode == "Performance" ? 1.15 : mode == "Balanced" ? 1.08 : 1.0;
         var sentencePause=mode=="Quality"?.20:.12;
@@ -170,9 +174,13 @@ public sealed class NaturalVoice(LocalWorker worker, string mode = "Balanced") :
 public static class Providers
 {
     public const string ConversationalTranslator = "Conversational Hindi (local AI, recommended)";
-    public static ILocalizer Localizer(AppSettings s, LocalWorker worker,LocalWorker? nllb = null,LlamaServer? llm = null)
+    public const string GeminiTranslator = "Gemini (cloud, best Hindi, needs internet + key)";
+    public static ILocalizer Localizer(AppSettings s, LocalWorker worker,LocalWorker? nllb = null,LlamaServer? llm = null,GeminiClient? gemini = null)
     {
         if(s.Translator.StartsWith("Local sample")) return new FixtureLocalizer();
+        // Gemini writes the Hindi with scene context; the same meaning guard applies and Marian covers limits/outages.
+        if(s.Translator.StartsWith("Gemini") && gemini is { Configured: true })
+            return new ConversationalLocalizer(gemini,new OfflineLocalizer(worker,1),!s.DialoguePolicy.StartsWith("Story"));
         var mt = new OfflineLocalizer(s.Translator.StartsWith("Offline NLLB") ? nllb ?? throw new InvalidOperationException("NLLB worker is unavailable") : worker,s.PerformanceMode=="Quality"?3:1);
         // Conversational mode: LLM localisation, with the sentence MT model as the meaning-guard fallback.
         return s.Translator.StartsWith("Conversational") && llm is not null && LlamaServer.Available
@@ -180,8 +188,12 @@ public static class Providers
     }
     public static IVoiceProvider Voice(AppSettings s, LocalWorker worker,LocalWorker? gpu = null,Action<string>? fallbackNotice = null,LocalWorker? natural = null)
     {
+        // Light voice when the natural one is released: Kokoro on the GPU (DirectML, ~1 s per line while a game
+        // fills the CPU; CPU Kokoro took 2-14 s), CPU Kokoro if DirectML fails.
+        IVoiceProvider light=new KokoroVoice(worker,s.PerformanceMode);
+        if(gpu is not null && KokoroVoice.DirectMLAvailable)light=new FallbackVoice(new KokoroVoice(gpu,s.PerformanceMode),light,fallbackNotice);
         if(s.Tts.StartsWith("IndicF5") && natural is not null && NaturalVoice.Available)
-            return new CachedVoice(new FallbackVoice(new NaturalVoice(natural,s.PerformanceMode),new KokoroVoice(worker,s.PerformanceMode),fallbackNotice));
+            return new CachedVoice(new FallbackVoice(new NaturalVoice(natural,s.PerformanceMode),light,fallbackNotice));
         IVoiceProvider voice=s.Tts.StartsWith("eSpeak") ? new EspeakVoice() : new KokoroVoice(worker,s.PerformanceMode);
         if(s.Tts.Contains("GPU") && gpu is not null)voice=new FallbackVoice(new KokoroVoice(gpu,s.PerformanceMode),voice,fallbackNotice);
         return new CachedVoice(voice);

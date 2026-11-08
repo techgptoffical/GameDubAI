@@ -8,11 +8,18 @@ using System.Text.RegularExpressions;
 
 namespace GameDub.Core;
 
+/// <summary>A chat model that can answer with JSON: the local llama.cpp server or a cloud model.</summary>
+public interface IChatModel
+{
+    string ModelName { get; }
+    Task<(string Text, double Ms, int Tokens)> ChatAsync(string system, string user, int maxTokens, double temperature, CancellationToken token, object? jsonSchema = null);
+}
+
 /// <summary>
 /// One persistent llama.cpp server (Vulkan GPU, loopback only, random port, no web UI) hosting a small
 /// instruction model. Started lazily, reused for every line, killed with the app.
 /// </summary>
-public sealed class LlamaServer : IDisposable
+public sealed class LlamaServer : IChatModel, IDisposable
 {
     public static string Executable => Path.Combine(Paths.Workspace, "runtime-llama", "bin", "llama-server.exe");
     public static string ModelPath => Directory.Exists(Path.Combine(Paths.Workspace, "models", "llm"))
@@ -104,7 +111,7 @@ public sealed class LlamaServer : IDisposable
 /// meaning guard (Hindi script, numbers, negation, names, length); a failing line falls back to the
 /// sentence MT model so nothing is silently invented.
 /// </summary>
-public sealed class ConversationalLocalizer(LlamaServer server, ILocalizer fallback, bool concise = true) : ILocalizer
+public sealed class ConversationalLocalizer(IChatModel server, ILocalizer fallback, bool concise = true) : ILocalizer
 {
     public const string PromptVersion = "dub-hi-v6";
     public string Identity => $"llm-{server.ModelName}:{PromptVersion}:{(concise ? "live" : "story")}";
@@ -137,7 +144,7 @@ public sealed class ConversationalLocalizer(LlamaServer server, ILocalizer fallb
         "register": "tu", "tum" or "aap", the address form you chose.
         "hindi": the dubbed line, Devanagari only, written from "meaning", using only that address form.
         """;
-    private static readonly object Schema = new
+    public static readonly object Schema = new
     {
         type = "object",
         properties = new { meaning = new { type = "string" }, register = new { type = "string", @enum = new[] { "tu", "tum", "aap" } }, hindi = new { type = "string" } },

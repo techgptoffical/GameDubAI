@@ -30,6 +30,8 @@ public sealed class AppSettings
     public bool DuckGameAudio { get; set; }
     public float DuckLevel { get; set; } = 0.3f;
     public int SettingsVersion { get; set; }
+    /// <summary>Optional Gemini model id; empty = newest stable Flash-Lite available to the key.</summary>
+    public string GeminiModel { get; set; } = "";
     public static AppSettings Load()
     {
         AppSettings settings;

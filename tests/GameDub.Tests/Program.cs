@@ -457,6 +457,23 @@ if(args.Contains("--speech-acceptance"))
     });
 }
 
+if(args.Contains("--gemini-live"))
+{
+    // Real Gemini with the key the user saved in GameDub (never printed). 8 real GTA lines from the dialogue log.
+    var key=ApiKeyStore.Load();if(key is null) { Console.WriteLine("No Gemini key saved in GameDub Settings."); return 1; }
+    using var client=new GeminiClient(()=>key);client.Notice+=n=>Console.WriteLine("notice: "+n);
+    var local=new CountingLocal();var localizer=new ConversationalLocalizer(client,local);var history=new List<string>();
+    string[] lines=["Wrong house. This guy isn't our guy.","Shit. You are kidding me. I'll call Steve.","No way that's your guy.","Okay. Okay. Okay. Uh, you sure you dont want to silence him just to make sure?",
+        "If we're silencing someone, we're silencing the right someone. Get me another address.","The FIB cut you a deal on your sick bed, faked your death, and you end up here.","How long? The fuck does that matter?","Slow down. Let's think this through. What does he know?"];
+    var times=new List<double>();
+    foreach(var english in lines)
+    {
+        var watch=Stopwatch.StartNew();var hindi=await localizer.TranslateAsync(new(english,"Michael"),new GameProfile(),history,default);times.Add(watch.Elapsed.TotalMilliseconds);
+        history.Add(english+" => "+hindi.Hindi);Console.WriteLine($"{watch.ElapsedMilliseconds,5} ms  {english}");Console.WriteLine($"          {hindi.Hindi}   [{hindi.Source}]");
+    }
+    times.Sort();Console.WriteLine($"model {client.ModelName} • median {times[times.Count/2]:0} ms • max {times[^1]:0} ms • local fallbacks {local.Count}/{lines.Length}");
+    return 0;
+}
 if(args.Contains("--live-speech")||args.Contains("--natural-speech"))
 {
     var naturalRun=args.Contains("--natural-speech");
@@ -738,6 +755,7 @@ if (args.Contains("--duck"))
 }
 await V2Acceptance.Run(testRoot,Test);
 await DialogueRepairTests.Run(testRoot,Test);
+await GeminiTests.Run(testRoot,Test);
 await OcrLayoutTests.Run(testRoot,Test);
 Json.Write(Path.Combine(testRoot, "results.json"), results);
 Console.WriteLine($"{results.Count-failed}/{results.Count} passed; results: {testRoot}");
@@ -807,4 +825,10 @@ sealed class ObservingVoice(Func<bool> playing) : IVoiceProvider
         if(playing())Interlocked.Increment(ref PreparedDuringPlayback);
         await Task.Delay(20,token); return new(System.Text.Encoding.UTF8.GetBytes(line.Hindi),"pcm_24000",Identity);
     }
+}
+sealed class CountingLocal : ILocalizer
+{
+    public int Count;
+    public string Identity => "local-fallback";
+    public Task<LocalizedLine> TranslateAsync(Dialogue line, GameProfile profile, IReadOnlyList<string> history, CancellationToken token) { Count++; return Task.FromResult(new LocalizedLine("(local fallback)", line.Emotion, Identity)); }
 }
