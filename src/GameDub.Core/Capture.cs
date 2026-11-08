@@ -111,41 +111,65 @@ public static class GameWindows
     }
 }
 
-public sealed class WindowsSubtitleOcr(string style = "Raw", int requestedScale = 1)
+public sealed class WindowsSubtitleOcr(string style = "Raw", int requestedScale = 1, string alignment = "Any")
 {
     public string LastVariant { get; private set; } = "Raw";
+    public SubtitleFrame LastFrame { get; private set; } = SubtitleFrame.Empty;
     private readonly OcrEngine engine = OcrEngine.TryCreateFromLanguage(new Language("en-US"))
         ?? throw new InvalidOperationException("Windows English OCR is unavailable. Install the English OCR language feature in Windows Settings.");
-    public async Task<string> RecognizeAsync(Bitmap bitmap, CancellationToken token)
+    public async Task<string> RecognizeAsync(Bitmap bitmap, CancellationToken token) => (await RecognizeFrameAsync(bitmap, token)).Text;
+    /// <param name="centerX">Screen centre in crop coordinates (centred subtitles); defaults to the crop centre.</param>
+    public async Task<SubtitleFrame> RecognizeFrameAsync(Bitmap bitmap, CancellationToken token, double? centerX = null)
     {
         var scale = requestedScale == 0 ? (bitmap.Height<140?2:1) : Math.Clamp(requestedScale,1,3);
         scale=Math.Max(1,Math.Min(scale,(int)OcrEngine.MaxImageDimension/Math.Max(bitmap.Width,bitmap.Height)));
-        using var scaled=SubtitleImages.Scale(bitmap,scale);
+        var ink = EdgeInk.FromTop(bitmap);
+        SubtitleFrame Layout(IReadOnlyList<OcrTextLine> lines,string variant)=>SubtitleLayout.Assemble(lines,bitmap.Width,bitmap.Height,alignment,centerX,ink,variant);
+        SubtitleFrame frame;
         if(style.Equals("Bright",StringComparison.OrdinalIgnoreCase))
-        { using var bright=SubtitleImages.BrightText(bitmap); using var large=SubtitleImages.Scale(bright,scale); LastVariant="Bright"; return await RecognizeRawAsync(large,token); }
-        var raw=await RecognizeRawAsync(scaled,token); LastVariant="Raw";
-        if(!style.Equals("Auto",StringComparison.OrdinalIgnoreCase)) return raw;
-        using var mask=SubtitleImages.BrightText(bitmap); using var bigMask=SubtitleImages.Scale(mask,scale);
-        var filtered=await RecognizeRawAsync(bigMask,token);
-        if(SubtitleImages.TextScore(filtered)>SubtitleImages.TextScore(raw)+3) { LastVariant="Bright"; return filtered; }
-        return raw;
-    }
-    private async Task<string> RecognizeRawAsync(Bitmap bitmap,CancellationToken token)
-    {
-        using var png = new MemoryStream();
-        bitmap.Save(png, ImageFormat.Png);
-        using var stream = new InMemoryRandomAccessStream();
-        using (var writer = new DataWriter(stream))
+        { using var bright=SubtitleImages.BrightText(bitmap); using var large=SubtitleImages.Scale(bright,scale); frame=Layout(await RecognizeRawAsync(large,scale,token),"Bright"); }
+        else
         {
-            writer.WriteBytes(png.ToArray());
-            await writer.StoreAsync().AsTask(token);
-            writer.DetachStream();
+            using (var scaled=scale==1?null:SubtitleImages.Scale(bitmap,scale)) frame=Layout(await RecognizeRawAsync(scaled??bitmap,scale,token),"Raw");
+            if(style.Equals("Auto",StringComparison.OrdinalIgnoreCase))
+            {
+                using var mask=SubtitleImages.BrightText(bitmap); using var bigMask=SubtitleImages.Scale(mask,scale);
+                var filtered=Layout(await RecognizeRawAsync(bigMask,scale,token),"Bright");
+                if(filtered.Kept.Count==frame.Kept.Count&&frame.Kept.Count>1)
+                {
+                    // Same rows found by both passes: keep the cleaner reading of each row.
+                    var rows=frame.Kept.Zip(filtered.Kept,(a,b)=>SubtitleImages.TextScore(b.Text)>SubtitleImages.TextScore(a.Text)+1?b:a).ToArray();
+                    frame=frame with { Kept=rows,Text=SubtitleLayout.Join(rows) };
+                }
+                else if(SubtitleImages.TextScore(filtered.Text)>SubtitleImages.TextScore(frame.Text)+3) frame=filtered with { TopClipped=frame.TopClipped||filtered.TopClipped };
+            }
         }
-        stream.Seek(0);
-        var decoder = await BitmapDecoder.CreateAsync(stream).AsTask(token);
-        using var software = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore).AsTask(token);
+        LastVariant=frame.Variant; LastFrame=frame; return frame;
+    }
+    private async Task<IReadOnlyList<OcrTextLine>> RecognizeRawAsync(Bitmap bitmap,int scale,CancellationToken token)
+    {
+        // Direct BGRA copy: no PNG encode/decode per frame.
+        var rect=new Rectangle(0,0,bitmap.Width,bitmap.Height);
+        var data=bitmap.LockBits(rect,ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+        byte[] pixels;
+        try
+        {
+            pixels=new byte[bitmap.Width*4*bitmap.Height];
+            for(var y=0;y<bitmap.Height;y++) Marshal.Copy(data.Scan0+y*data.Stride,pixels,y*bitmap.Width*4,bitmap.Width*4);
+        }
+        finally { bitmap.UnlockBits(data); }
+        using var writer=new DataWriter(); writer.WriteBytes(pixels);
+        using var software=SoftwareBitmap.CreateCopyFromBuffer(writer.DetachBuffer(),BitmapPixelFormat.Bgra8,bitmap.Width,bitmap.Height,BitmapAlphaMode.Ignore);
         var result = await engine.RecognizeAsync(software).AsTask(token);
-        return string.Join(" ", result.Lines.Select(l => l.Text));
+        var output=new List<OcrTextLine>();
+        foreach(var line in result.Lines)
+        {
+            var words=line.Words.Select(w=>new OcrWord(w.Text,new RectangleF((float)w.BoundingRect.X/scale,(float)w.BoundingRect.Y/scale,(float)w.BoundingRect.Width/scale,(float)w.BoundingRect.Height/scale))).ToArray();
+            if(words.Length==0)continue;
+            var box=RectangleF.FromLTRB(words.Min(w=>w.Box.Left),words.Min(w=>w.Box.Top),words.Max(w=>w.Box.Right),words.Max(w=>w.Box.Bottom));
+            output.Add(new(line.Text,box,words));
+        }
+        return output;
     }
 }
 
@@ -155,10 +179,13 @@ public sealed class SubtitleMonitor
     public event Action<string>? Status;
     public double LastOcrMs { get; private set; }
     public long OcrFrames { get; private set; }
+    /// <summary>Raised with the enlarged region (reference coordinates) after clipped subtitles were detected.</summary>
+    public event Action<CaptureRegion>? RegionGrown;
     public async Task RunAsync(GameWindow game, CaptureRegion region, IDialogueSink router, CancellationToken token, GameProfile? captureProfile = null)
     {
         var originalRegion=region;
-        var ocr = new WindowsSubtitleOcr(captureProfile?.OcrStyle ?? "Raw",captureProfile?.OcrScale ?? 1);
+        var ocr = new WindowsSubtitleOcr(captureProfile?.OcrStyle ?? "Raw",captureProfile?.OcrScale ?? 1,captureProfile?.SubtitleAlignment ?? "Any");
+        var clippedFrames=0;var grownTimes=0;
         var detector = new SubtitleChangeDetector();
         var clock = Stopwatch.StartNew();
         ulong previousHash = 0;
@@ -166,7 +193,7 @@ public sealed class SubtitleMonitor
         var suspended = false;
         var escapeWasDown=false;
         var suppressUntil=TimeSpan.Zero;
-        var lastEmitted="";var pauseHint=false;
+        var lastEmitted="";var pauseHint=false;string? lastEventId=null;
         while (!token.IsCancellationRequested)
         {
             if (!GameWindows.IsAlive(game))
@@ -203,24 +230,45 @@ public sealed class SubtitleMonitor
             var capturedAt = DateTimeOffset.UtcNow;
             using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(bounds.X + region.X, bounds.Y + region.Y, 0, 0, bitmap.Size);
             var hash = Fingerprint(bitmap);
-            if (hash != previousHash)
+            var fresh=hash!=previousHash;
+            if (fresh)
             {
                 var timer = Stopwatch.StartNew();
-                previousText = await ocr.RecognizeAsync(bitmap, token);
+                var frame = await ocr.RecognizeFrameAsync(bitmap, token, bounds.Width/2.0-region.X);
+                previousText = frame.Text;
                 LastOcrMs = timer.Elapsed.TotalMilliseconds; OcrFrames++;
                 previousHash = hash;
+                // Glyphs cut by the crop edge in consecutive distinct frames: grow the saved region
+                // (reference coordinates) instead of sending half a subtitle to the translator.
+                clippedFrames=frame.TopClipped||frame.SideClipped?clippedFrames+1:0;
+                if(clippedFrames>=2&&grownTimes<6)
+                {
+                    var grown=SubtitleLayout.Grow(originalRegion,captureProfile is { RegionReferenceWidth: >0 }?captureProfile.RegionReferenceWidth:bounds.Width,
+                        captureProfile is { RegionReferenceHeight: >0 }?captureProfile.RegionReferenceHeight:bounds.Height,frame.TopClipped,frame.SideClipped);
+                    if(grown is not null)
+                    {
+                        Trace?.Write("region_grown",null,new { from=originalRegion,to=grown,top=frame.TopClipped,side=frame.SideClipped,text=frame.Text });
+                        originalRegion=grown;grownTimes++;clippedFrames=0;detector=new();previousHash=0;previousText="";
+                        RegionGrown?.Invoke(grown);
+                        Status?.Invoke("Subtitle text was cut by the capture edge • region enlarged automatically");
+                        await Task.Delay(30,token);continue;
+                    }
+                }
             }
             var observation = detector.Observe(previousText, clock.Elapsed);
-            Trace?.Write("ocr", null, new { text = previousText, confidence = (double?)null, confidenceAvailable = false, ocrMs = LastOcrMs,
-                capturedAt, detectorEvent = observation.Event.ToString(), variant = ocr.LastVariant, region, clientWidth = bounds.Width, clientHeight = bounds.Height });
-            Trace?.Frame(bitmap,previousText,LastOcrMs);
+            if(fresh || observation.Event!=SubtitleEvent.None)
+                Trace?.Write("ocr", null, new { text = previousText, confidence = (double?)null, confidenceAvailable = false, ocrMs = LastOcrMs,
+                capturedAt, detectorEvent = observation.Event.ToString(), variant = ocr.LastVariant, region, clientWidth = bounds.Width, clientHeight = bounds.Height,
+                rows = ocr.LastFrame.Kept.Count, rejected = ocr.LastFrame.Rejected.Select(l=>l.Text).ToArray(), topClipped = ocr.LastFrame.TopClipped, sideClipped = ocr.LastFrame.SideClipped });
+            Trace?.Frame(bitmap,previousText,LastOcrMs,ocr.LastFrame);
             if (observation.Event == SubtitleEvent.Line)
             {
                 if(pauseHint && router is IPausableDialogueSink p)p.Resume();pauseHint=false;
-                if(Text.Key(observation.Text)==Text.Key(lastEmitted)) { await Task.Delay(100,token);continue; }
+                if(SubtitleChangeDetector.Similar(observation.Text,lastEmitted,.85)) { await Task.Delay(100,token);continue; }
                 lastEmitted=observation.Text;
                 Status?.Invoke($"Subtitle detected • OCR {LastOcrMs:0} ms");
-                var line = Text.Parse(observation.Text) with { FirstSeenAt = capturedAt-(clock.Elapsed-observation.FirstSeen) };
+                var line = Text.Parse(observation.Text) with { FirstSeenAt = capturedAt-(clock.Elapsed-observation.FirstSeen), Supersedes = observation.Extends ? lastEventId : null };
+                lastEventId=line.EventId;
                 Trace?.Write("detected",line,new { english = line.English, firstObservedAt = line.FirstSeenAt, stabilizationMs = (clock.Elapsed-observation.FirstSeen).TotalMilliseconds });
                 router.Submit(line);
             }
@@ -231,10 +279,19 @@ public sealed class SubtitleMonitor
     private static ulong Fingerprint(Bitmap bitmap)
     {
         // Coarse luminance/color quantization helps ignore tiny antialias changes; the crop stays in memory.
-        ulong hash = 14695981039346656037;
-        for (var y = 0; y < bitmap.Height; y += 4)
-            for (var x = 0; x < bitmap.Width; x += 4)
-            { var pixel = bitmap.GetPixel(x, y); hash = (hash ^ (uint)((pixel.R / 16 << 8) | (pixel.G / 16 << 4) | pixel.B / 16)) * 1099511628211; }
-        return hash;
+        var data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            ulong hash = 14695981039346656037;
+            var row = new byte[data.Stride];
+            for (var y = 0; y < bitmap.Height; y += 4)
+            {
+                Marshal.Copy(data.Scan0 + y * data.Stride, row, 0, row.Length);
+                for (var x = 0; x < bitmap.Width; x += 4)
+                { var p = x * 4; hash = (hash ^ (uint)((row[p + 2] / 16 << 8) | (row[p + 1] / 16 << 4) | row[p] / 16)) * 1099511628211; }
+            }
+            return hash;
+        }
+        finally { bitmap.UnlockBits(data); }
     }
 }

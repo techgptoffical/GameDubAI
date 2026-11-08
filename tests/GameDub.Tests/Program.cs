@@ -100,6 +100,13 @@ async Task Test(string name, Func<Task> body)
 void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 var testRoot = Path.Combine(Paths.Workspace, "artifacts", "tests", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
 Directory.CreateDirectory(testRoot);
+if (args.Contains("--ocr"))
+{
+    await OcrLayoutTests.Run(testRoot, Test);
+    Json.Write(Path.Combine(testRoot, "results.json"), results);
+    Console.WriteLine($"{results.Count-failed}/{results.Count} passed; results: {testRoot}");
+    return failed == 0 ? 0 : 1;
+}
 
 await Test("closed demo selection resolves to the actual GTA process, not the Steam title", () =>
 {
@@ -645,6 +652,7 @@ if (args.Contains("--duck"))
 }
 await V2Acceptance.Run(testRoot,Test);
 await DialogueRepairTests.Run(testRoot,Test);
+await OcrLayoutTests.Run(testRoot,Test);
 Json.Write(Path.Combine(testRoot, "results.json"), results);
 Console.WriteLine($"{results.Count-failed}/{results.Count} passed; results: {testRoot}");
 return failed == 0 ? 0 : 1;

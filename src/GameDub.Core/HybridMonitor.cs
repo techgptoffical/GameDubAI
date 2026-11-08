@@ -64,11 +64,12 @@ public sealed class HybridMonitor(LocalWorker asr)
 {
     public PipelineTrace? Trace { get; set; }
     public event Action<string>? Status;
+    public event Action<CaptureRegion>? RegionGrown;
     public async Task RunAsync(GameWindow game, CaptureRegion region, IDialogueSink router, CancellationToken token,GameProfile? profile = null)
     {
         var arbiter = new HybridArbiter(router);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var subtitles = new SubtitleMonitor() { Trace=Trace }; subtitles.Status += message => Status?.Invoke(message);
+        var subtitles = new SubtitleMonitor() { Trace=Trace }; subtitles.Status += message => Status?.Invoke(message); subtitles.RegionGrown += r => RegionGrown?.Invoke(r);
         var audio = new LiveAudioMonitor(asr); audio.Status += message => Status?.Invoke(message);
         var subtitleTask = subtitles.RunAsync(game, region, arbiter.Subtitles, lifetime.Token,profile);
         var audioTask = AudioOrFallbackAsync();

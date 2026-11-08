@@ -30,3 +30,5 @@ models/marian-en-hi/vocab.json
 .serena/
 research/sublens/
 models/**/*.zip
+runtime-llama/
+models/llm/

@@ -141,7 +141,7 @@ public partial class MainWindow : Window
             if (selector.ShowDialog() == true)
             {
                 profile.Region = selector.Region; ShowRegion();
-                profile.CaptureSchemaVersion=1;
+                profile.CaptureSchemaVersion=SubtitleImages.CurrentCaptureSchema;
                 var bounds=GameWindows.Bounds(game.Handle); profile.RegionReferenceWidth=bounds.Width; profile.RegionReferenceHeight=bounds.Height;
                 ProfileJson.Text = JsonSerializer.Serialize(profile, Json.Options);
                 Json.Write(Path.Combine(Paths.Profiles, profile.GameId + ".json"), profile);
@@ -226,6 +226,7 @@ public partial class MainWindow : Window
             if (automatic && game.ProcessId != Environment.ProcessId)
             {
                 var monitor = new HybridMonitor(asrWorker) { Trace=diagnosticTrace }; monitor.Status += SetStatus;
+                monitor.RegionGrown += grown => Dispatcher.Invoke(() => { profile.Region = grown; ShowRegion(); SaveVoiceProfile(); });
                 await Task.Run(() => monitor.RunAsync(game, profile.Region!, activeRouter, running.Token,profile));
             }
             else if (useAudio)
@@ -236,6 +237,7 @@ public partial class MainWindow : Window
             else
             {
                 var monitor = new SubtitleMonitor() { Trace=diagnosticTrace }; monitor.Status += SetStatus;
+                monitor.RegionGrown += grown => Dispatcher.Invoke(() => { profile.Region = grown; ShowRegion(); SaveVoiceProfile(); });
                 SetStatus(game.ProcessId == Environment.ProcessId ? "TEST DEMO dubbing enabled. This targets the demo, not your game." : $"Dubbing enabled for {game.Title} ({game.Name}). Return to that game with English subtitles visible.");
                 await Task.Run(() => monitor.RunAsync(game, profile.Region!, activeRouter, running.Token,profile));
             }

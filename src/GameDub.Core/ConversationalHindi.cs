@@ -54,12 +54,25 @@ public static class SpeechDelivery
 
 public static class SubtitleUiFilter
 {
+    // Words that make up game button legends / pause-menu tabs. A row made almost entirely of these,
+    // without sentence punctuation, is UI chrome rather than spoken dialogue.
+    private static readonly HashSet<string> Legend=new(StringComparer.OrdinalIgnoreCase)
+    {
+        "browse","rockstar","games","account","caps","hide","menu","back","select","zoom","page","up","down","point","of","interest",
+        "blip","tab","esc","enter","continue","cancel","accept","quit","exit","options","settings","map","brief","stats","friends",
+        "gallery","store","online","game","waypoint","legend","navigate","scroll","toggle","change","confirm","skip","hold","press",
+        "lb","rb","lt","rt","rmb","lmb","social","club","save","load","pause","paused","resume","help","a","b","x","y","f","e","q",
+        "spacebar","space","shift","ctrl","alt","f1","f2","f3","f4","f5","f6","f7","f8","f9","f10","f11","f12","mouse","wheel","place","set","clear"
+    };
     public static bool IsControlText(string value)
     {
         var text=Text.Key(value);
         if(new[]{"paused","loading","loading...","saving...","game paused","press any key"}.Contains(text))return true;
         if(text.Contains("rockstar games")&&(text.Contains("hide menu")||text.Contains("browse")&&text.Contains("caps")))return true;
         var controls=new[]{"zoom","page down","page up","point of interest","blip","select","back"}.Count(text.Contains);
-        return controls>=3&&(text.Contains("esc")||text.Contains("tab")||text.Contains("caps"));
+        if(controls>=3&&(text.Contains("esc")||text.Contains("tab")||text.Contains("caps")))return true;
+        if(text.IndexOfAny(['.','!','?'])>=0)return false;
+        var words=text.Split(' ',StringSplitOptions.RemoveEmptyEntries).Select(w=>w.Trim(',',':',';','-','(',')','[',']','/')).Where(w=>w.Length>0).ToArray();
+        return words.Length>=3&&words.Count(Legend.Contains)>=Math.Ceiling(words.Length*.75);
     }
 }

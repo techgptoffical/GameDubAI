@@ -67,6 +67,14 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
             if(disposed!=0)return;
             if(store.Get(line.EventId) is not null) { pipeline.Trace?.Write("duplicate_event",line,new { reason="event_id_already_recorded" });return; }
             if(lastSubtitle is not null)store.Update(lastSubtitle,e=>e.DisappearedAt??=DateTimeOffset.UtcNow);
+            // A late upper row turned a partial capture into the full sentence: speak only the full one
+            // unless the partial is already audible.
+            if(line.Supersedes is { } old && store.Get(old) is { } partial && partial.Scene==scene && partial.PlaybackState is "Pending" or "Ready" or "Deferred")
+            {
+                if(prepared.TryRemove(old,out var packet)) { packet.Discarded=true;packet.Chunks.Writer.TryComplete(new OperationCanceledException()); }
+                store.Update(old,e=> { e.PlaybackState="Cancelled";e.CancellationReason="Superseded by the complete multi-row subtitle"; });
+                pipeline.Trace?.Write("superseded",line,new { replaced=old,english=line.English });
+            }
             var voice=CharacterVoices.Assign(line,pipeline.SchedulerProfile);
             var item=store.Add(line,scene,voice);lastSubtitle=item.Id;
             pipeline.Trace?.Write("captured_event",line,new { sequence=item.Sequence,speaker=item.Speaker,voice=item.VoiceId,evidence=item.SpeakerEvidence,confidence=item.SpeakerConfidence,policy=policy.ToString() });

@@ -294,35 +294,65 @@ public sealed class DialogueRouter : IAsyncDisposable, IDialogueSink
 }
 
 public enum SubtitleEvent { None, Line, Cleared }
-public record SubtitleObservation(SubtitleEvent Event, string Text = "", TimeSpan FirstSeen = default);
+/// <param name="Extends">The new line is the previously emitted line plus more rows/words (a late upper row).</param>
+public record SubtitleObservation(SubtitleEvent Event, string Text = "", TimeSpan FirstSeen = default, bool Extends = false);
 public sealed class SubtitleChangeDetector
 {
+    private readonly Dictionary<string,int> variants = new();
     private string candidate = "", emitted = "";
     private TimeSpan since, blankSince;
     private bool blank;
     private int repeats;
     private static string OcrKey(string value) => new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+    private static int Negations(string value) => System.Text.RegularExpressions.Regex.Matches(value.ToLowerInvariant(), @"\b(?:not|never|no|nothing|nobody|none|nor|neither)\b|n't\b").Count;
+    /// <summary>OCR-noise tolerant equality: edit-distance ratio on letters/digits, never across a negation change.</summary>
+    public static bool Similar(string a, string b, double threshold = .8)
+    {
+        var x = OcrKey(a); var y = OcrKey(b);
+        if (x == y) return true;
+        if (x.Length == 0 || y.Length == 0 || Negations(a) != Negations(b)) return false;
+        if (Math.Min(x.Length, y.Length) < .75 * Math.Max(x.Length, y.Length)) return false;
+        var previous = new int[y.Length + 1]; var current = new int[y.Length + 1];
+        for (var j = 0; j <= y.Length; j++) previous[j] = j;
+        for (var i = 1; i <= x.Length; i++)
+        {
+            current[0] = i;
+            for (var j = 1; j <= y.Length; j++) current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + (x[i - 1] == y[j - 1] ? 0 : 1));
+            (previous, current) = (current, previous);
+        }
+        return 1 - previous[y.Length] / (double)Math.Max(x.Length, y.Length) >= threshold;
+    }
+    private string Best() => variants.Count == 0 ? candidate : variants.OrderByDescending(v => v.Value).ThenByDescending(v => SubtitleImages.TextScore(v.Key)).First().Key;
     public SubtitleObservation Observe(string raw, TimeSpan now)
     {
         var text = Text.Clean(raw);
         if (SubtitleUiFilter.IsControlText(text)) text = "";
         if (text.Length < 3 || text.Count(char.IsLetter) < 2)
         {
-            candidate = ""; repeats = 0;
+            candidate = ""; repeats = 0; variants.Clear();
             if (!blank) { blank = true; blankSince = now; }
             if (now - blankSince >= TimeSpan.FromMilliseconds(700) && emitted.Length > 0)
             { emitted = ""; return new(SubtitleEvent.Cleared); }
             return new(SubtitleEvent.None);
         }
         blank = false;
-        if (OcrKey(text) != OcrKey(candidate)) { candidate = text; since = now; repeats = 1; return new(SubtitleEvent.None); }
-        repeats++;
-        var settled = text.EndsWith('.') || text.EndsWith('!') || text.EndsWith('?') || text.EndsWith('"');
-        var lastWord = text.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault()?.ToLowerInvariant() ?? "";
-        var unfinished = new[] { "gotta", "gonna", "wanna", "the", "a", "an", "to", "and", "or", "of", "with", "your", "my", "our", "their" }.Contains(lastWord);
+        if (!Similar(text, candidate)) { candidate = text; since = now; repeats = 1; variants.Clear(); variants[text] = 1; return new(SubtitleEvent.None); }
+        repeats++; variants[text] = variants.GetValueOrDefault(text) + 1;
+        var best = Best();
+        var settled = best.EndsWith('.') || best.EndsWith('!') || best.EndsWith('?') || best.EndsWith('"');
+        var lastWord = best.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault()?.ToLowerInvariant() ?? "";
+        var unfinished = best.EndsWith(',') || new[] { "gotta", "gonna", "wanna", "the", "a", "an", "to", "and", "or", "of", "with", "your", "my", "our", "their" }.Contains(lastWord);
         var stableMs = settled ? 140 : unfinished ? 650 : 280;
-        if (repeats >= 2 && (now - since).TotalMilliseconds >= stableMs && OcrKey(emitted) != OcrKey(text))
-        { emitted = text; return new(SubtitleEvent.Line, text, since); }
+        // A row that starts mid-sentence (lower-case) may be the lower row of a caption whose upper row
+        // is still fading in; give the upper row a moment so the translator gets the whole sentence.
+        var first = best.FirstOrDefault(char.IsLetter);
+        if (char.IsLower(first) && !best.StartsWith("i ", StringComparison.Ordinal)) stableMs = Math.Max(stableMs, 500);
+        if (repeats >= 2 && (now - since).TotalMilliseconds >= stableMs && !Similar(emitted, best, .85))
+        {
+            var e = OcrKey(emitted); var k = OcrKey(best);
+            var extends = e.Length >= 8 && k.Length >= e.Length + 4 && (k.EndsWith(e, StringComparison.Ordinal) || k.StartsWith(e, StringComparison.Ordinal));
+            emitted = best; return new(SubtitleEvent.Line, best, since, extends);
+        }
         return new(SubtitleEvent.None);
     }
 }

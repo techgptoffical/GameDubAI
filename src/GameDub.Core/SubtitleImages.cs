@@ -7,16 +7,32 @@ namespace GameDub.Core;
 
 public static class SubtitleImages
 {
+    public const int CurrentCaptureSchema=2;
+    /// <summary>
+    /// GTA V draws subtitles centred, bottom-anchored, growing upward one row (~45 px at 1080p) per line.
+    /// Real traces showed a 72-92 px strip cut the first row of two-line captions and included the minimap.
+    /// Canonical crop: centre 67% of the width (clears the minimap and the right-side button legend),
+    /// bottom kept, at least 15% of the height (three rows plus margin).
+    /// </summary>
+    public static CaptureRegion GtaSubtitleRegion(int width,int height,int? bottom=null)
+    {
+        var b=Math.Min(height,bottom??height-1);var h=(int)Math.Ceiling(height*.15);
+        var x=(int)Math.Round(width*.165);return new(x,Math.Max(0,b-h),width-2*x,Math.Min(h,b));
+    }
     public static bool RepairClippedGameRegion(GameProfile profile)
     {
-        if(profile.CaptureSchemaVersion>=1)return false;
-        profile.CaptureSchemaVersion=1;
-        if(!profile.GameId.StartsWith("GTA5",StringComparison.OrdinalIgnoreCase)||profile.Region is not {} region||profile.RegionReferenceHeight<720)return true;
-        var height=profile.RegionReferenceHeight;
-        if(region.Height<height*.10&&region.Y+region.Height>height*.90)
+        if(profile.CaptureSchemaVersion>=CurrentCaptureSchema)return false;
+        profile.CaptureSchemaVersion=CurrentCaptureSchema;
+        if(!profile.GameId.StartsWith("GTA5",StringComparison.OrdinalIgnoreCase))return true;
+        profile.SubtitleAlignment="Center";
+        // Two OCR passes (raw + outline mask, best reading per row) only run on changed frames.
+        if(profile.OcrStyle.Equals("Raw",StringComparison.OrdinalIgnoreCase))profile.OcrStyle="Auto";
+        if(profile.Region is not {} region||profile.RegionReferenceHeight<480||profile.RegionReferenceWidth<640)return true;
+        var height=profile.RegionReferenceHeight;var width=profile.RegionReferenceWidth;
+        var bottomStrip=region.Y+region.Height>height*.9&&Math.Abs(region.X+region.Width/2.0-width/2.0)<width*.1;
+        if(bottomStrip&&region.Height<height*.15)
         {
-            var bottom=Math.Min(height,region.Y+region.Height);var required=(int)Math.Ceiling(height*.15);
-            profile.Region=region with { Y=Math.Max(0,bottom-required),Height=required };
+            profile.Region=GtaSubtitleRegion(width,height,region.Y+region.Height);
         }
         return true;
     }
@@ -61,7 +77,14 @@ public static class SubtitleImages
     {
         var words=text.Split(' ',StringSplitOptions.RemoveEmptyEntries);
         var letters=text.Count(char.IsLetter); var junk=text.Count(c=>!char.IsLetterOrDigit(c)&&!char.IsWhiteSpace(c)&&!".,!?'\"-:;".Contains(c));
-        return letters + words.Count(w=>w.Count(char.IsLetter)>=2)*3 - junk*8 - words.Count(w=>w.Length>24)*20;
+        // OCR misreads look like non-English letters (ü, å), digits glued to letters (100king, 5üt)
+        // and capitals inside words (MiChael, baCk); English subtitles rarely contain those.
+        var foreign=text.Count(c=>char.IsLetter(c)&&c>127);
+        var core=words.Select(w=>w.Trim('.',',','!','?','"','\'',':',';','(',')')).Where(w=>w.Length>0).ToArray();
+        var glued=core.Count(w=>w.Any(char.IsDigit)&&w.Any(char.IsLetter)&&!System.Text.RegularExpressions.Regex.IsMatch(w,@"^\d+(st|nd|rd|th|s|am|pm|k|m)$",System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        var camel=core.Count(w=>w.Length>2&&w.Skip(1).Any(char.IsUpper)&&w.Any(char.IsLower)&&!w.Contains('\''));
+        var longWords=core.Count(w=>w.Count(char.IsLetter)>13);
+        return letters + words.Count(w=>w.Count(char.IsLetter)>=2)*3 - junk*8 - words.Count(w=>w.Length>24)*20 - foreign*6 - glued*8 - camel*6 - longWords*4;
     }
     public static CaptureRegion Resolve(CaptureRegion region, int width,int height,GameProfile? profile)
     {

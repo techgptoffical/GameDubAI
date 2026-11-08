@@ -8,6 +8,8 @@ public record Dialogue(string English, string Speaker = "Unknown", string Emotio
 {
     public string EventId { get; init; } = Guid.NewGuid().ToString("N");
     public DateTimeOffset FirstSeenAt { get; init; } = DateTimeOffset.UtcNow;
+    /// <summary>EventId of an earlier partial capture of the same subtitle that this complete line replaces.</summary>
+    public string? Supersedes { get; init; }
 }
 public record LocalizedLine(string Hindi, string Emotion, string Source);
 public record AudioClip(byte[] Bytes, string Format, string Identity);
@@ -33,6 +35,8 @@ public sealed class GameProfile
     public int RegionReferenceHeight { get; set; }
     public int CaptureSchemaVersion { get; set; }
     public string OcrStyle { get; set; } = "Raw";
+    /// <summary>"Center" keeps only rows centred on the game window (rejects HUD/minimap/menu legends); "Any" keeps all rows.</summary>
+    public string SubtitleAlignment { get; set; } = "Any";
     public bool ConversationalHindi { get; set; } = true;
     public int OcrScale { get; set; } = 1;
     public string VoiceFor(string speaker) => Characters.FirstOrDefault(p=>p.Key.Equals(speaker,StringComparison.OrdinalIgnoreCase)).Value?.VoiceId
