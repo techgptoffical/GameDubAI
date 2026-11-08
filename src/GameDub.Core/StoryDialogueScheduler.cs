@@ -46,6 +46,12 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
     private readonly int liveDeadlineMs;
     /// <summary>Live Cinematic: most lines allowed to wait (not yet playing). Older ones become text-only history.</summary>
     public int MaxLiveBacklog { get; init; } = 2;
+    /// <summary>
+    /// Live: a line past the deadline is dropped only once newer dialogue exists. The newest line still plays
+    /// late (a busy PC can take several seconds to voice it) up to this hard limit; late speech beats silence.
+    /// </summary>
+    public int LiveNewestLimitMs { get; init; } = 15000;
+    private long latestSequence;
     /// <summary>Story Complete: lag at which playback stops and asks for Catch up.</summary>
     public double StoryCatchupSeconds { get; init; } = 20;
     public event Action<string>? Error;
@@ -80,7 +86,7 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
                 pipeline.Trace?.Write("superseded",line,new { replaced=old,english=line.English });
             }
             var voice=CharacterVoices.Assign(line,pipeline.SchedulerProfile);
-            var item=store.Add(line,scene,voice);lastSubtitle=item.Id;
+            var item=store.Add(line,scene,voice);lastSubtitle=item.Id;Interlocked.Exchange(ref latestSequence,item.Sequence);
             if(policy==DialoguePolicy.LiveSync)
                 // Never interrupt the line that is playing; drop the oldest *waiting* lines instead so
                 // speech stays close to the scene. Their text (and translation) stays in History.
@@ -142,7 +148,12 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
     {
         lock(gate)if(Current(item))store.Update(item.Id,e=> { if(e.PlaybackState!="Cancelled")edit(e); });
     }
-    private bool Expired(DialogueEvent e)=>policy==DialoguePolicy.LiveSync&&(DateTimeOffset.UtcNow-e.AppearedAt).TotalMilliseconds>liveDeadlineMs;
+    private bool Expired(DialogueEvent e)
+    {
+        if(policy!=DialoguePolicy.LiveSync)return false;
+        var age=(DateTimeOffset.UtcNow-e.AppearedAt).TotalMilliseconds;
+        return age>liveDeadlineMs&&(e.Sequence<Interlocked.Read(ref latestSequence)||age>Math.Max(liveDeadlineMs,LiveNewestLimitMs));
+    }
     private void Unspoken(DialogueEvent e,string reason)
     {
         if(prepared.TryRemove(e.Id,out var packet)) { packet.Discarded=true;packet.Chunks.Writer.TryComplete(); }

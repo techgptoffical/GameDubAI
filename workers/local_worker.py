@@ -72,10 +72,15 @@ class Models:
     def run(self, request):
         start = time.perf_counter()
         if request.get("op") == "warmup":
-            if self.kind=='tts-dml' and not self.prewarmed:
+            # Real first inference at startup: the first line in-game otherwise paid ~7 s extra (CPU voice, busy CPU).
+            if self.kind in ('tts','tts-dml') and not self.prewarmed:
                 with contextlib.redirect_stdout(sys.stderr):
                     self.kokoro.create('ठीक है।',voice='hf_alpha',lang='hi')
                     self.kokoro.create('हमें अब चलना चाहिए।',voice='hm_omega',lang='hi')
+                self.prewarmed=True
+            elif self.kind.startswith('translate') and not getattr(self,'prewarmed',False):
+                with contextlib.redirect_stdout(sys.stderr):
+                    self.marian.translate('We need to leave now.')
                 self.prewarmed=True
             return {"ok": True, "kind": self.kind}
         if self.kind == "asr":

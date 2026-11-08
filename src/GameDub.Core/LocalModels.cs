@@ -51,7 +51,8 @@ public sealed class LocalWorker(string kind) : IDisposable
                 foreach (var name in info.Environment.Keys.Where(n => Regex.IsMatch(n, "API_KEY|TOKEN|SECRET|PASSWORD", RegexOptions.IgnoreCase)).ToArray()) info.Environment.Remove(name);
                 process = Process.Start(info) ?? throw new IOException("Could not start local model worker."); coldStart = true;
                 ChildProcessJob.Attach(process);
-                try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch (System.ComponentModel.Win32Exception) { }
+                // Normal, not BelowNormal: below the game's priority a busy CPU starved the worker (5-14 s per short line). Each worker is capped at 2 threads.
+                try { process.PriorityClass = ProcessPriorityClass.Normal; } catch (System.ComponentModel.Win32Exception) { }
                 process.ErrorDataReceived += (_, _) => { }; // Drain diagnostics; never mix logs with JSON or log private dialogue.
                 process.BeginErrorReadLine();
             }

@@ -49,11 +49,22 @@ internal static class V2Acceptance
         await test("V2 Live Sync expires audio but retains every translated caption",async()=>
         {
             var dir=Path.Combine(root,"v2-live");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);
-            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(250),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,100,Path.Combine(dir,"mt"));
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(250),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,100,Path.Combine(dir,"mt")) { LiveNewestLimitMs=100 };
             var line=new Dialogue("slow generation deadline");scheduler.Submit(line);
             await Until(()=>store.Get(line.EventId)!.PlaybackState=="Unspoken");await Task.Delay(400);
             var e=store.Get(line.EventId)!;Check(e.PlaybackState=="Unspoken"&&e.Hindi.Length>0&&e.CancellationReason!.Contains("deadline"),"Expired audio resurrected or caption lost");
             Check(output.Lines.IsEmpty&&scheduler.PreparedCount==0,"Expired buffer played or stayed resident");
+        });
+        await test("Live on a busy PC: the newest late line still speaks, older late lines give way",async()=>
+        {
+            var dir=Path.Combine(root,"v2-live-late");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(250),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,100,Path.Combine(dir,"mt"));
+            var newest=new Dialogue("late but newest");scheduler.Submit(newest);
+            await Until(()=>store.Get(newest.EventId)!.PlaybackState is "Completed" or "Unspoken");
+            Check(store.Get(newest.EventId)!.PlaybackState=="Completed","Newest line dropped although nothing newer was waiting: "+store.Get(newest.EventId)!.CancellationReason);
+            var a=new Dialogue("older late A");var b=new Dialogue("newer B");scheduler.Submit(a);scheduler.Submit(b);
+            await Until(()=>store.Get(b.EventId)!.PlaybackState is "Completed" or "Unspoken");
+            Check(store.Get(a.EventId)!.PlaybackState=="Unspoken"&&store.Get(b.EventId)!.PlaybackState=="Completed","Older late line kept or newest dropped: "+store.Get(a.EventId)!.PlaybackState+"/"+store.Get(b.EventId)!.PlaybackState);
         });
         await test("V2 explicit scene skip cancels old playback and keeps history",async()=>
         {
