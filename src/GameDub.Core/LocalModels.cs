@@ -50,6 +50,7 @@ public sealed class LocalWorker(string kind) : IDisposable
                 // No secrets inherited by AI workers. No worker has any network use.
                 foreach (var name in info.Environment.Keys.Where(n => Regex.IsMatch(n, "API_KEY|TOKEN|SECRET|PASSWORD", RegexOptions.IgnoreCase)).ToArray()) info.Environment.Remove(name);
                 process = Process.Start(info) ?? throw new IOException("Could not start local model worker.");
+                ChildProcessJob.Attach(process);
                 try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch (System.ComponentModel.Win32Exception) { }
                 process.ErrorDataReceived += (_, _) => { }; // Drain diagnostics; never mix logs with JSON or log private dialogue.
                 process.BeginErrorReadLine();

@@ -42,6 +42,7 @@ public sealed class LlamaServer : IDisposable
                 "-t", "2", "--no-webui", "-fa", "on", "--reasoning-format", "deepseek" }) info.ArgumentList.Add(arg);
             foreach (var name in info.Environment.Keys.Where(n => Regex.IsMatch(n, "API_KEY|TOKEN|SECRET|PASSWORD", RegexOptions.IgnoreCase)).ToArray()) info.Environment.Remove(name);
             process = Process.Start(info) ?? throw new IOException("Could not start the local Hindi language model.");
+            ChildProcessJob.Attach(process);
             try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch (System.ComponentModel.Win32Exception) { }
             process.ErrorDataReceived += (_, _) => { }; process.OutputDataReceived += (_, _) => { };
             process.BeginErrorReadLine(); process.BeginOutputReadLine();
