@@ -17,7 +17,7 @@ internal static class V2Acceptance
             var output=new Output(25);var voice=new Voice(4,()=>output.Active>0);
             var profile=new GameProfile { DefaultVoice="hm_omega",Voices=new() { ["Michael"]="hm_omega",["Amanda"]="hf_beta" } };
             var pipeline=new DubbingPipeline(new Translate(),voice,output,new(Path.Combine(dir,"audio")),profile);
-            await using var scheduler=new StoryDialogueScheduler(pipeline,store,translationCacheDirectory:Path.Combine(dir,"mt"));
+            await using var scheduler=new StoryDialogueScheduler(pipeline,store,translationCacheDirectory:Path.Combine(dir,"mt")) { MergeContinuations=false };
             scheduler.Pause("simulate a pause while captions arrive");
             var lines=Enumerable.Range(0,50).Select(i=>new Dialogue($"unseen line {i}",i%2==0?"Michael":"Amanda")).ToArray();
             foreach(var line in lines) { scheduler.Submit(line);scheduler.SubtitleCleared(); }
@@ -40,7 +40,7 @@ internal static class V2Acceptance
         await test("V2 Story Complete retains old lines until explicit catch-up",async()=>
         {
             var dir=Path.Combine(root,"v2-catchup");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);
-            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt"));
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt")) { MergeContinuations=false };
             var line=new Dialogue("remember this story") { FirstSeenAt=DateTimeOffset.UtcNow.AddSeconds(-25) };scheduler.Submit(line);
             await Until(()=>scheduler.NeedsCatchup);Check(output.Lines.IsEmpty&&store.Get(line.EventId)!.Hindi.Length>0,"Old line lost or played without catch-up");
             scheduler.CatchUp();using var timeout=new CancellationTokenSource(3000);await scheduler.WaitForIdleAsync(timeout.Token);
@@ -49,7 +49,7 @@ internal static class V2Acceptance
         await test("V2 Live Sync expires audio but retains every translated caption",async()=>
         {
             var dir=Path.Combine(root,"v2-live");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);
-            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(250),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,100,Path.Combine(dir,"mt")) { LiveNewestLimitMs=100 };
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(250),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,100,Path.Combine(dir,"mt")) { MergeContinuations=false, LiveNewestLimitMs=100 };
             var line=new Dialogue("slow generation deadline");scheduler.Submit(line);
             await Until(()=>store.Get(line.EventId)!.PlaybackState=="Unspoken");await Task.Delay(400);
             var e=store.Get(line.EventId)!;Check(e.PlaybackState=="Unspoken"&&e.Hindi.Length>0&&e.CancellationReason!.Contains("deadline"),"Expired audio resurrected or caption lost");
@@ -58,7 +58,7 @@ internal static class V2Acceptance
         await test("Live on a busy PC: the newest late line still speaks, older late lines give way",async()=>
         {
             var dir=Path.Combine(root,"v2-live-late");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);
-            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(250),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,100,Path.Combine(dir,"mt"));
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(250),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,100,Path.Combine(dir,"mt")) { MergeContinuations=false };
             var newest=new Dialogue("late but newest");scheduler.Submit(newest);
             await Until(()=>store.Get(newest.EventId)!.PlaybackState is "Completed" or "Unspoken");
             Check(store.Get(newest.EventId)!.PlaybackState=="Completed","Newest line dropped although nothing newer was waiting: "+store.Get(newest.EventId)!.CancellationReason);
@@ -66,10 +66,27 @@ internal static class V2Acceptance
             await Until(()=>store.Get(b.EventId)!.PlaybackState is "Completed" or "Unspoken");
             Check(store.Get(a.EventId)!.PlaybackState=="Unspoken"&&store.Get(b.EventId)!.PlaybackState=="Completed","Older late line kept or newest dropped: "+store.Get(a.EventId)!.PlaybackState+"/"+store.Get(b.EventId)!.PlaybackState);
         });
+        await test("GTA sentence split over three subtitles is spoken as one line; a new sentence stays separate",async()=>
+        {
+            Check(StoryDialogueScheduler.Continues("Yeah, well, you know. There's nothing like uh,","meeting a bunch of creeps")
+                &&StoryDialogueScheduler.Continues("from the government in a","for someone to grow balls.")
+                &&StoryDialogueScheduler.Continues("Then Trevor flips out... or raises 'em as his...","...own kids.")
+                &&!StoryDialogueScheduler.Continues("Go to the house.","Wrong house.")
+                &&!StoryDialogueScheduler.Continues("Okay,","I'll call Steve.")
+                &&!StoryDialogueScheduler.Continues("Are you taking a dump?","why do you care?"),"Continuation rule wrong");
+            var dir=Path.Combine(root,"v2-merge");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(300),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,6000,Path.Combine(dir,"mt"));
+            var lead=new Dialogue("Here we go.");scheduler.Submit(lead);await Until(()=>output.Active>0||output.Lines.Count>0);
+            var a=new Dialogue("Yeah, well, you know. There's nothing like uh,");var b=new Dialogue("meeting a bunch of creeps from the government in a");var c=new Dialogue("for someone to grow balls.");
+            scheduler.Submit(a);scheduler.Submit(b);scheduler.Submit(c);
+            using var timeout=new CancellationTokenSource(8000);await scheduler.WaitForIdleAsync(timeout.Token);
+            Check(output.Lines.Contains("Yeah, well, you know. There's nothing like uh, meeting a bunch of creeps from the government in a for someone to grow balls."),"Parts not spoken as one line: "+string.Join(" | ",output.Lines));
+            Check(store.Get(a.EventId)!.PlaybackState=="Cancelled"&&store.Get(b.EventId)!.PlaybackState=="Cancelled"&&store.Get(a.EventId)!.CancellationReason!.Contains("Superseded"),"Fragments still queued separately");
+        });
         await test("V2 explicit scene skip cancels old playback and keeps history",async()=>
         {
             var dir=Path.Combine(root,"v2-skip");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(400);
-            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(5),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt"));
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(5),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt")) { MergeContinuations=false };
             var a=new Dialogue("old scene A");var b=new Dialogue("old scene B");scheduler.Submit(a);scheduler.Submit(b);await Until(()=>output.Active>0);
             scheduler.SkipScene("User skipped cutscene");scheduler.Submit(new("new scene"));
             using var timeout=new CancellationTokenSource(4000);await scheduler.WaitForIdleAsync(timeout.Token);
@@ -79,7 +96,7 @@ internal static class V2Acceptance
         await test("V2 pausing active speech preserves its remainder and stops the next line",async()=>
         {
             var dir=Path.Combine(root,"v2-pause");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(250);
-            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt"));
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt")) { MergeContinuations=false };
             var a=new Dialogue("pause A");scheduler.Submit(a);scheduler.Submit(new("pause B"));await Until(()=>output.Active>0);
             scheduler.Pause("game in menu");await Task.Delay(350);
             Check(output.Lines.Count==1&&store.Get(a.EventId)!.PlaybackState=="Playing","Pause discarded current remainder or began next line");
@@ -99,7 +116,7 @@ internal static class V2Acceptance
         await test("Live Cinematic keeps speech near the scene: bounded backlog, order, no overlap, history kept",async()=>
         {
             var dir=Path.Combine(root,"live-cinematic");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(400);
-            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,6000,Path.Combine(dir,"mt"));
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,DialoguePolicy.LiveSync,6000,Path.Combine(dir,"mt")) { MergeContinuations=false };
             var lines=Enumerable.Range(0,8).Select(i=>new Dialogue($"rapid cutscene line {i}")).ToArray();
             var maxWaiting=0L;
             foreach(var line in lines) { scheduler.Submit(line with { FirstSeenAt=DateTimeOffset.UtcNow });await Task.Delay(60);maxWaiting=Math.Max(maxWaiting,store.Count(0,"playback IN ('Pending','Ready','Deferred')")); }
@@ -125,14 +142,14 @@ internal static class V2Acceptance
         await test("V2 provider failures retain dialogue and later lines recover",async()=>
         {
             var dir=Path.Combine(root,"v2-failure");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);
-            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt"));
+            await using var scheduler=new StoryDialogueScheduler(new(new Translate(),new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt")) { MergeContinuations=false };
             var bad=new Dialogue("fail");scheduler.Submit(bad);scheduler.Submit(new("recover"));using var timeout=new CancellationTokenSource(3000);await scheduler.WaitForIdleAsync(timeout.Token);
             Check(store.Get(bad.EventId)!.TranslationState=="Failed"&&output.Lines.Single()=="recover","Failure erased event or wedged queue");
         });
         await test("V2 repeated fresh events reuse translation and stopped callbacks are harmless",async()=>
         {
             var dir=Path.Combine(root,"v2-stop");using var store=new DialogueEventStore(Path.Combine(dir,"events.sqlite"));var output=new Output(10);var mt=new Translate();
-            var scheduler=new StoryDialogueScheduler(new(mt,new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt"));
+            var scheduler=new StoryDialogueScheduler(new(mt,new Voice(),output,new(Path.Combine(dir,"audio")),new()),store,translationCacheDirectory:Path.Combine(dir,"mt")) { MergeContinuations=false };
             var first=new Dialogue("repeat this");scheduler.Submit(first);using var timeout=new CancellationTokenSource(3000);await scheduler.WaitForIdleAsync(timeout.Token);
             scheduler.SkipScene("repeat in a new scene");scheduler.Submit(new("repeat this"));await scheduler.WaitForIdleAsync(timeout.Token);
             Check(mt.Calls==1&&output.Lines.Count==2,"Cache missed stable content or fresh repeat suppressed");

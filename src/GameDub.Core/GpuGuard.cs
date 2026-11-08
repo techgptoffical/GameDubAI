@@ -93,7 +93,10 @@ public static class GpuGuard
     /// True when loading a model (needVramMiB on the GPU, needCommitMiB of system commit) still leaves the game its reserves.
     /// Unknown GPU state → only the system memory check applies (non-NVIDIA).
     /// </summary>
-    public static bool CanLoad(int needVramMiB, int needCommitMiB, out string reason)
+    /// <summary>Commit kept free after loading a small model (GPU Kokoro) while the game runs; just above the shed threshold.</summary>
+    public static int LightCommitReserveMiB { get; set; } = 1792;
+    public static bool CanLoad(int needVramMiB, int needCommitMiB, out string reason) => CanLoad(needVramMiB, needCommitMiB, out reason, null);
+    public static bool CanLoad(int needVramMiB, int needCommitMiB, out string reason, int? commitReserveWhileRunning)
     {
         var free = FreeMiB;
         if (free is { } f && f - needVramMiB < LoadReserveMiB)
@@ -104,7 +107,7 @@ public static class GpuGuard
         if (MemoryProbe() is { } m)
         {
             var running = GameRunning();
-            var reserve = running ? CommitReserveMiB : Math.Max(CommitReserveMiB, GameStartReserveMiB);
+            var reserve = running ? commitReserveWhileRunning ?? CommitReserveMiB : Math.Max(CommitReserveMiB, GameStartReserveMiB);
             if (m.AvailableCommitMiB - needCommitMiB < reserve)
             {
                 reason = $"only {m.AvailableCommitMiB / 1024.0:0.0} GB system memory free; model needs {needCommitMiB / 1024.0:0.0} GB and " +

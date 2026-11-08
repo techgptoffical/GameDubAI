@@ -51,6 +51,20 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
     /// late (a busy PC can take several seconds to voice it) up to this hard limit; late speech beats silence.
     /// </summary>
     public int LiveNewestLimitMs { get; init; } = 15000;
+    public int MaxMergedLength { get; init; } = 360;
+    public bool MergeContinuations { get; init; } = true;
+    /// <summary>True when <paramref name="next"/> continues a sentence that <paramref name="previous"/> left unfinished.</summary>
+    public static bool Continues(string previous,string next)
+    {
+        previous=previous.TrimEnd();next=next.TrimStart(' ','-','–','—','.','…');
+        if(previous.Length==0||next.Length==0)return false;
+        var trailing=previous.EndsWith("...")||previous.EndsWith("…")||previous.EndsWith(',')||previous.EndsWith('-')||previous.EndsWith('—')||previous.EndsWith(';')||previous.EndsWith(':');
+        var finished=!trailing&&System.Text.RegularExpressions.Regex.IsMatch(previous,"[.!?][\"'”’)]*$");
+        if(finished)return false;
+        // Continuations in GTA start lower-case; an upper-case start is a new sentence (or a new speaker).
+        var first=next.FirstOrDefault(char.IsLetter);
+        return first!=default&&char.IsLower(first);
+    }
     private long latestSequence;
     /// <summary>Story Complete: lag at which playback stops and asks for Catch up.</summary>
     public double StoryCatchupSeconds { get; init; } = 20;
@@ -76,6 +90,15 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
         {
             if(disposed!=0)return;
             if(store.Get(line.EventId) is not null) { pipeline.Trace?.Write("duplicate_event",line,new { reason="event_id_already_recorded" });return; }
+            // GTA splits one spoken sentence over several subtitles ("...nothing like uh," / "meeting a bunch of creeps..." /
+            // "for someone to grow balls."). Spoken separately, Live dropped the first parts and only the tail was heard.
+            // While the unfinished part has not started playing, speak the parts as one line.
+            if(MergeContinuations&&line.Supersedes is null&&lastSubtitle is not null&&store.Get(lastSubtitle) is { } previous&&previous.Scene==scene
+               &&previous.PlaybackState is "Pending" or "Ready" or "Deferred"&&Continues(previous.English,line.English)&&previous.English.Length+line.English.Length<=MaxMergedLength)
+            {
+                line=line with { English=previous.English.TrimEnd()+" "+line.English.TrimStart(),Supersedes=previous.Id,Speaker=line.Speaker=="Unknown"?previous.Speaker:line.Speaker };
+                pipeline.Trace?.Write("continuation_merged",line,new { previous=previous.Id });
+            }
             if(lastSubtitle is not null)store.Update(lastSubtitle,e=>e.DisappearedAt??=DateTimeOffset.UtcNow);
             // A late upper row turned a partial capture into the full sentence: speak only the full one
             // unless the partial is already audible.
@@ -283,7 +306,8 @@ public sealed class StoryDialogueScheduler : IDialogueController,IPausableDialog
     }
     public async Task WaitForIdleAsync(CancellationToken token)
     {
-        while(store.Count(scene,"translation IN ('Pending','Translating') OR playback IN ('Pending','Ready','Playing','Deferred')")>0) { await Task.Delay(30,token); }
+        // A part cancelled mid-translation (merged into its continuation, or superseded) never finishes translating; it is not pending work.
+        while(store.Count(scene,"(translation IN ('Pending','Translating') AND playback!='Cancelled') OR playback IN ('Pending','Ready','Playing','Deferred')")>0) { await Task.Delay(30,token); }
     }
     public async ValueTask DisposeAsync()
     {

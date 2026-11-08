@@ -495,7 +495,7 @@ if(args.Contains("--live-speech")||args.Contains("--natural-speech"))
         IVoiceProvider primaryVoice=naturalRun?new NaturalVoice(gpu):new KokoroVoice(gpu);
         var voice=new CachedVoice(new FallbackVoice(primaryVoice,new KokoroVoice(cpu),s=>Console.WriteLine("VOICE FALLBACK: "+s)),new(Path.Combine(directory,"voice-cache")));
         var pipeline=new DubbingPipeline(localizer,voice,player,new(Path.Combine(directory,"audio")),profile) { Trace=trace };
-        await using var scheduler=new StoryDialogueScheduler(pipeline,store,live?DialoguePolicy.LiveSync:DialoguePolicy.StoryComplete,6000,Path.Combine(directory,"mt-cache"));
+        await using var scheduler=new StoryDialogueScheduler(pipeline,store,live?DialoguePolicy.LiveSync:DialoguePolicy.StoryComplete,6000,Path.Combine(directory,"mt-cache")) { MergeContinuations=false };
         var catchups=0;var maxWaiting=0L;scheduler.Status+=s=> { if(scheduler.NeedsCatchup) { Interlocked.Increment(ref catchups);scheduler.CatchUp(); } };
         scheduler.Error+=s=>Console.WriteLine("provider error: "+s);
         using var sampler=new Timer(_=>{ try { maxWaiting=Math.Max(maxWaiting,store.Count(0,"playback IN ('Pending','Ready','Deferred')")); } catch(Exception) { } },null,0,200);
@@ -541,7 +541,7 @@ if(args.Contains("--v2-speech"))
         var profile=new GameProfile { DefaultVoice="hm_omega",Voices=new() { ["Michael"]="hm_omega",["Amanda"]="hf_beta" } };
         var voice=new CachedVoice(new FallbackVoice(new KokoroVoice(gpu),new KokoroVoice(cpu)),new(Path.Combine(directory,"voice-cache")));
         var pipeline=new DubbingPipeline(new OfflineLocalizer(mt,1),voice,player,new(Path.Combine(directory,"audio")),profile) { Trace=trace };
-        await using var scheduler=new StoryDialogueScheduler(pipeline,store,translationCacheDirectory:Path.Combine(directory,"mt-cache"));
+        await using var scheduler=new StoryDialogueScheduler(pipeline,store,translationCacheDirectory:Path.Combine(directory,"mt-cache")) { MergeContinuations=false };
         var catchups=0;scheduler.Status+=s=> { Console.WriteLine(s);if(scheduler.NeedsCatchup) { Interlocked.Increment(ref catchups);scheduler.CatchUp(); } };
         scheduler.Error+=s=>Console.WriteLine("V2 real provider error: "+s);
         await RapidAcceptance.RunAsync(Path.Combine(directory,"replay"),timeout.Token,scheduler,trace,true);

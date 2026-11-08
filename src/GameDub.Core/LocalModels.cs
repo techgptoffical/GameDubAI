@@ -139,7 +139,7 @@ public sealed class KokoroVoice(LocalWorker worker, string mode = "Balanced") : 
     {
         if (!new[] { "hf_alpha", "hf_beta", "hm_omega", "hm_psi" }.Contains(voice)) voice = "hf_alpha";
         // GPU Kokoro loads only if the game keeps its memory; throwing hands the line to CPU Kokoro.
-        if (worker.Kind == "tts-dml" && worker.ProcessId is null && !GpuGuard.CanLoad(GpuGuard.KokoroGpuMiB, GpuGuard.KokoroGpuCommitMiB, out var why))
+        if (worker.Kind == "tts-dml" && worker.ProcessId is null && !GpuGuard.CanLoad(GpuGuard.KokoroGpuMiB, GpuGuard.KokoroGpuCommitMiB, out var why, GpuGuard.LightCommitReserveMiB))
             throw new InvalidOperationException("GPU Kokoro voice not loaded: " + why);
         // Kokoro has no documented Hindi emotional acting controls. Only a restrained speed choice.
         var speed = mode == "Performance" ? 1.15 : mode == "Balanced" ? 1.08 : 1.0;

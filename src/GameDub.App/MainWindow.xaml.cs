@@ -130,7 +130,7 @@ public partial class MainWindow : Window
     }
     /// <summary>Kokoro on the GPU when it fits (about 1 s per line while a game fills the CPU), else on the CPU.</summary>
     private LocalWorker LightVoiceWorker() =>
-        KokoroVoice.DirectMLAvailable && GpuGuard.CanLoad(GpuGuard.KokoroGpuMiB, GpuGuard.KokoroGpuCommitMiB, out _) ? gpuVoiceWorker : voiceWorker;
+        KokoroVoice.DirectMLAvailable && GpuGuard.CanLoad(GpuGuard.KokoroGpuMiB, GpuGuard.KokoroGpuCommitMiB + (voiceWorker.ProcessId is null ? 0 : -600), out _, GpuGuard.LightCommitReserveMiB) ? gpuVoiceWorker : voiceWorker;
     private async Task WarmLightVoiceAsync(LocalWorker worker, CancellationToken token)
     {
         try { await worker.WarmAsync(token); }
@@ -280,6 +280,13 @@ public partial class MainWindow : Window
         if (settings.Translator.StartsWith("Conversational") && LlamaServer.Available && llm.ProcessId is null && !GpuGuard.LlmShed)
             try { SetStatus("Loading conversational Hindi model…"); using var limit = CancellationTokenSource.CreateLinkedTokenSource(token); limit.CancelAfter(TimeSpan.FromSeconds(300)); await llm.EnsureStartedAsync(limit.Token); }
             catch (Exception failure) when (!token.IsCancellationRequested) { SetStatus("Conversational model not loaded; Marian translates this session. " + failure.Message); }
+        if ((settings.Tts.StartsWith("IndicF5") ? GpuGuard.VoiceShed || !NaturalVoice.Available : settings.Tts.Contains("GPU")) && gpuVoiceWorker.ProcessId is null && LightVoiceWorker() == gpuVoiceWorker)
+            try
+            {
+                SetStatus("Loading the fast GPU Kokoro voice…"); using var limit = CancellationTokenSource.CreateLinkedTokenSource(token); limit.CancelAfter(TimeSpan.FromSeconds(120));
+                await gpuVoiceWorker.WarmAsync(limit.Token); voiceWorker.Release(); // CPU Kokoro restarts only if the GPU voice fails
+            }
+            catch (Exception failure) when (!token.IsCancellationRequested) { gpuVoiceWorker.Release(); SetStatus("GPU Kokoro voice could not start; CPU Kokoro speaks. " + failure.Message); }
         if (settings.Tts.StartsWith("IndicF5") && NaturalVoice.Available && naturalVoiceWorker.ProcessId is null && !GpuGuard.VoiceShed)
         {
             if (!GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB, GpuGuard.NaturalVoiceCommitMiB, out var why)) { GpuGuard.Shed(true, false, why); SetStatus("Natural voice not loaded (" + why + "). The light Kokoro voice speaks instead."); }
