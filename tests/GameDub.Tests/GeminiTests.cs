@@ -28,6 +28,8 @@ internal static class GeminiTests
         {
             Check(GeminiClient.PickModel(["gemini-2.0-flash-lite", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite-preview", "gemini-2.5-flash-preview-tts", "gemini-2.5-flash"]) == "gemini-2.5-flash-lite", "Wrong model chosen");
             Check(GeminiClient.PickModel(["gemini-3.1-flash-lite-preview"]) == "gemini-3.1-flash-lite-preview", "Preview-only list not used");
+            Check(System.Text.Json.JsonSerializer.Serialize(GeminiClient.ThinkingConfig("gemini-3.5-flash-lite")).Contains("minimal")
+                && System.Text.Json.JsonSerializer.Serialize(GeminiClient.ThinkingConfig("gemini-2.5-flash-lite")).Contains("thinkingBudget"), "Wrong thinking setting per model generation");
             var schema = GeminiClient.ToGeminiSchema(ConversationalLocalizer.Schema)!.ToJsonString();
             Check(schema.Contains("\"OBJECT\"") && schema.Contains("\"STRING\"") && !schema.Contains("enum"), "Schema not converted: " + schema);
             return Task.CompletedTask;
@@ -42,6 +44,16 @@ internal static class GeminiTests
             var post = google.Calls.Last();
             Check(post.Url.EndsWith("models/gemini-2.5-flash-lite:generateContent") && post.Key == FakeKey && google.Calls.All(c => !c.Url.Contains(FakeKey)), "Key in URL or wrong endpoint");
             Check(post.Body.Contains("systemInstruction") && post.Body.Contains("BLOCK_NONE") && post.Body.Contains("Go to the house."), "Prompt, scene context or safety settings missing");
+
+            // A model that rejects the thinking setting with a vague "invalid argument" is retried once without it, then remembered.
+            var strict = new FakeGoogle((r, body) => r.Method == HttpMethod.Get ? (HttpStatusCode.OK, Models)
+                : body.Contains("thinking") ? (HttpStatusCode.BadRequest, "{\"error\":{\"code\":400,\"message\":\"Request contains an invalid argument.\"}}") : (HttpStatusCode.OK, Answer("चलो, निकलते हैं।")));
+            using var strictClient = new GeminiClient(() => FakeKey, null, strict);
+            var strictLocalizer = new ConversationalLocalizer(strictClient, new FixtureLocalizer());
+            var first = await strictLocalizer.TranslateAsync(new("Let's go."), new GameProfile(), [], default);
+            var posts = strict.Calls.Count(c => c.Url.Contains("generateContent"));
+            await strictLocalizer.TranslateAsync(new("Let's move."), new GameProfile(), [], default);
+            Check(first.Hindi == "चलो, निकलते हैं।" && posts == 2 && strict.Calls.Count(c => c.Url.Contains("generateContent")) == 3, "Invalid thinking setting not retried/remembered");
         });
         await test("Gemini lost negation, rate limit and rejected key all fall back to the local translator", async () =>
         {
