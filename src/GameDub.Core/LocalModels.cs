@@ -159,8 +159,8 @@ public sealed class NaturalVoice(LocalWorker worker, string mode = "Balanced") :
     {
         // Never load the GPU voice into a game that has filled video memory (this crashed GTA once).
         // Throwing makes FallbackVoice switch to the CPU Kokoro voice for the rest of the session.
-        if (GpuGuard.VoiceShed) throw new InvalidOperationException("Natural voice released to keep the game's video memory free: " + GpuGuard.ShedReason);
-        if (worker.ProcessId is null && !GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB, out var why)) { GpuGuard.Shed(true, false, why); throw new InvalidOperationException("Natural voice not loaded: " + why); }
+        if (GpuGuard.VoiceShed) throw new InvalidOperationException("Natural voice released to keep memory free for the game: " + GpuGuard.ShedReason);
+        if (worker.ProcessId is null && !GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB, GpuGuard.NaturalVoiceCommitMiB, out var why)) { GpuGuard.Shed(true, false, why); throw new InvalidOperationException("Natural voice not loaded: " + why); }
         using var result = await worker.RequestAsync(new { text = line.Hindi, voice, speed = mode == "Performance" ? 1.08 : 1.0, steps = Steps }, token);
         return new(Convert.FromBase64String(result.RootElement.GetProperty("pcm").GetString()!), "pcm_" + result.RootElement.GetProperty("rate").GetInt32(), Identity);
     }

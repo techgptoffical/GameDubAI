@@ -51,6 +51,32 @@ internal static class DialogueRepairTests
             }
             finally { GpuGuard.Reset(); }
         });
+        await test("memory guard: models load only if the game keeps its system memory and video memory",()=>
+        {
+            var (vram,mem,running,reserve)=(GpuGuard.VramProbe,GpuGuard.MemoryProbe,GpuGuard.GameRunning,GpuGuard.CommitReserveMiB);
+            try
+            {
+                GpuGuard.CommitReserveMiB=3072;GpuGuard.VramProbe=()=>(2000,16000);
+                GpuGuard.MemoryProbe=()=>new(5000,22800,2000);GpuGuard.GameRunning=()=>true;
+                Check(!GpuGuard.CanLoad(GpuGuard.LlmMiB,GpuGuard.LlmCommitMiB,out var why)&&why.Contains("system memory"),"LLM loaded into a 5 GB commit headroom: "+why);
+                GpuGuard.MemoryProbe=()=>new(12000,38000,6000);
+                Check(GpuGuard.CanLoad(GpuGuard.LlmMiB,GpuGuard.LlmCommitMiB,out why),"Refused with plenty of memory: "+why);
+                GpuGuard.GameRunning=()=>false;
+                Check(!GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB,GpuGuard.NaturalVoiceCommitMiB,out why)&&why.Contains("game to start"),"No room kept for the game to launch: "+why);
+                GpuGuard.GameRunning=()=>true;GpuGuard.VramProbe=()=>(14500,16000);
+                Check(!GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB,GpuGuard.NaturalVoiceCommitMiB,out why)&&why.Contains("video memory"),"Loaded into full VRAM: "+why);
+                // While playing: low commit releases the voice first, then the LLM on the next check.
+                GpuGuard.VramProbe=()=>(6000,16000);GpuGuard.MemoryProbe=()=>new(1200,22800,900);
+                var released=new List<string>();using var watch=new GpuWatch(_=>released.Add("voice"),_=>released.Add("llm"),0);
+                watch.Check();Check(released.SequenceEqual(["voice"])&&GpuGuard.VoiceShed&&!GpuGuard.LlmShed,"Voice not released first: "+string.Join(",",released));
+                watch.Check();Check(released.SequenceEqual(["voice","llm"])&&GpuGuard.LlmShed,"LLM kept while memory still short");
+                Check(!GpuGuard.TryRestore(out _),"Restored while memory is still short");
+                GpuGuard.MemoryProbe=()=>new(14000,38000,6000);
+                Check(GpuGuard.TryRestore(out why)&&!GpuGuard.VoiceShed&&!GpuGuard.LlmShed,"Not restored once memory is free: "+why);
+            }
+            finally { (GpuGuard.VramProbe,GpuGuard.MemoryProbe,GpuGuard.GameRunning,GpuGuard.CommitReserveMiB)=(vram,mem,running,reserve);GpuGuard.Reset(); }
+            return Task.CompletedTask;
+        });
         await test("long Hindi delivery retains every word in bounded clauses",()=>
         {
             var text="हमें स्टेशन पहुँचने से पहले माइकल से बात करनी होगी, क्योंकि पुल बंद है और दूसरी सड़क पर पुलिस हमारा इंतज़ार कर रही है। "+

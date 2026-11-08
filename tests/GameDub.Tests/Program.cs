@@ -4,6 +4,10 @@ using GameDub.Core;
 using NAudio.Wave;
 using NAudio.CoreAudioApi;
 
+// Model tests are not a game session: no game launch reserve, smaller commit reserve. The guard still refuses
+// loads that would exhaust system memory.
+GpuGuard.GameRunning = () => true; GpuGuard.CommitReserveMiB = 1024;
+
 if (args.Contains("--audio-diagnostics"))
 {
     using var enumerator = new MMDeviceEnumerator();

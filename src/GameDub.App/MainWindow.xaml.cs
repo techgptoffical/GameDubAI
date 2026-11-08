@@ -62,6 +62,8 @@ public partial class MainWindow : Window
                 Close(); return;
             }
             StartTargetWatch();
+            // A game already running has its memory counted; one not started yet still needs room to launch.
+            GpuGuard.GameRunning = () => GpuGuard.KnownGameRunning() || (selectedGame is { } g && g.ProcessId != Environment.ProcessId && profile.Region is not null && GameWindows.IsAlive(g));
             gpuWatch = new GpuWatch(
                 reason => { naturalVoiceWorker.Release(); Dispatcher.BeginInvoke(() => SetStatus(reason + " • natural voice released, CPU voice continues")); },
                 reason => { llm.Release(); Dispatcher.BeginInvoke(() => SetStatus(reason + " • conversational model released, Marian continues")); });
@@ -94,8 +96,8 @@ public partial class MainWindow : Window
             var translator=settings.Translator.StartsWith("Offline NLLB")?nllbWorker:translationWorker;
             if(settings.Tts.StartsWith("IndicF5")&&!NaturalVoice.Available) { settings.Tts="Kokoro Hindi GPU (DirectML + CPU fallback)";SelectCombo(Tts,settings.Tts);SetStatus("Natural IndicF5 voice is not installed; using Kokoro."); }
             var tts=settings.Tts.StartsWith("IndicF5")?naturalVoiceWorker:settings.Tts.Contains("GPU")?gpuVoiceWorker:voiceWorker;
-            if(tts==naturalVoiceWorker&&!GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB,out var voiceWhy))
-            { GpuGuard.Shed(true,false,voiceWhy);tts=voiceWorker;SetStatus("Natural voice not loaded ("+voiceWhy+"). Using the CPU Kokoro voice so the game keeps its GPU memory."); }
+            if(tts==naturalVoiceWorker&&!GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB,GpuGuard.NaturalVoiceCommitMiB,out var voiceWhy))
+            { GpuGuard.Shed(true,false,voiceWhy);tts=voiceWorker;SetStatus("Natural voice not loaded ("+voiceWhy+"). Using the light CPU Kokoro voice so the game keeps its memory."); }
             // Sequential initialization avoids overlapping model-load allocation peaks on 16GB PCs.
             try { await translator.WarmAsync(timeout.Token); }
             catch(Exception failure)when(translator==nllbWorker&&failure is not OperationCanceledException)
@@ -209,9 +211,8 @@ public partial class MainWindow : Window
     {
         ReadSettings();
         var ageBudget = settings.PerformanceMode switch { "Quality" => Math.Max(12000, settings.MaxAgeMs), "Performance" => Math.Min(4000, settings.MaxAgeMs), _ => Math.Max(8000, settings.MaxAgeMs) };
-        // Models released for the game earlier may come back only if the game has since left enough video memory.
-        if ((GpuGuard.VoiceShed || GpuGuard.LlmShed) && GpuGuard.FreeMiB is { } freeNow
-            && freeNow - (GpuGuard.VoiceShed ? GpuGuard.NaturalVoiceMiB : 0) - (GpuGuard.LlmShed ? GpuGuard.LlmMiB : 0) >= GpuGuard.LoadReserveMiB) GpuGuard.Reset();
+        // Models released for the game earlier come back only if video and system memory both fit again now.
+        if (GpuGuard.TryRestore(out _)) SetStatus("Enough memory is free again; the natural voice / conversational model may reload.");
         var pipeline = new DubbingPipeline(Providers.Localizer(settings, translationWorker,nllbWorker,llm), Providers.Voice(settings, voiceWorker,gpuVoiceWorker,SetStatus,naturalVoiceWorker), mixer, new DialogueCache(), selectedProfile, budget ?? Math.Clamp(ageBudget, 500, 30000));
         pipeline.Trace = diagnosticTrace;
         pipeline.Localized += (line, localized) => Dispatcher.Invoke(() => { Original.Text = line.English; Hindi.Text = LabHindi.Text = localized.Hindi; ReplayButton.IsEnabled = false; });
@@ -226,6 +227,23 @@ public partial class MainWindow : Window
         pipeline.Status += SetStatus;
         currentPipeline = pipeline;
         return pipeline;
+    }
+    /// <summary>
+    /// Models skipped at startup (game not started yet, or memory short) load once here, before dialogue starts,
+    /// and only if video and system memory still leave the running game its reserve.
+    /// </summary>
+    private async Task WarmForGameAsync(CancellationToken token)
+    {
+        if (GpuGuard.TryRestore(out _)) SetStatus("Enough memory is free now; loading the full-quality models.");
+        if (settings.Translator.StartsWith("Conversational") && LlamaServer.Available && llm.ProcessId is null && !GpuGuard.LlmShed)
+            try { SetStatus("Loading conversational Hindi model…"); using var limit = CancellationTokenSource.CreateLinkedTokenSource(token); limit.CancelAfter(TimeSpan.FromSeconds(300)); await llm.EnsureStartedAsync(limit.Token); }
+            catch (Exception failure) when (!token.IsCancellationRequested) { SetStatus("Conversational model not loaded; Marian translates this session. " + failure.Message); }
+        if (settings.Tts.StartsWith("IndicF5") && NaturalVoice.Available && naturalVoiceWorker.ProcessId is null && !GpuGuard.VoiceShed)
+        {
+            if (!GpuGuard.CanLoad(GpuGuard.NaturalVoiceMiB, GpuGuard.NaturalVoiceCommitMiB, out var why)) { GpuGuard.Shed(true, false, why); SetStatus("Natural voice not loaded (" + why + "). The light Kokoro voice speaks instead."); }
+            else try { SetStatus("Loading natural voice…"); using var limit = CancellationTokenSource.CreateLinkedTokenSource(token); limit.CancelAfter(TimeSpan.FromSeconds(300)); await naturalVoiceWorker.WarmAsync(limit.Token); }
+            catch (Exception failure) when (!token.IsCancellationRequested) { naturalVoiceWorker.Release(); GpuGuard.Shed(true, false, "natural voice failed to start"); SetStatus("Natural voice could not start; the light Kokoro voice speaks instead. " + failure.Message); }
+        }
     }
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
@@ -243,6 +261,7 @@ public partial class MainWindow : Window
         {
             if(CaptureDiagnostics.IsChecked == true || Environment.GetCommandLineArgs().Contains("--diagnostic-session"))
             { diagnosticTrace = new PipelineTrace(); DiagnosticPath.Text = diagnosticTrace.DirectoryPath; }
+            await WarmForGameAsync(running.Token);
             var pipeline = MakePipeline(profile);
             OpenDialogueHistory();
             var activeRouter = router = new StoryDialogueScheduler(pipeline,eventStore!,settings.DialoguePolicy.StartsWith("Live")?DialoguePolicy.LiveSync:DialoguePolicy.StoryComplete,6000);
