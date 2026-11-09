@@ -7,8 +7,8 @@ OUT=ROOT/'artifacts'/'GameDubAI-Local-Windows.zip'
 psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
 app_dir='build/GameDubAI-next' if (ROOT/'build'/'GameDubAI-next'/'GameDub.App.exe').exists() else 'build/GameDubAI'
 folders=[app_dir,'runtime','workers','models/marian-en-hi','models/vosk-model-small-en-us-0.15','data','profiles','licenses','src','tests','tools','scripts','research','artifacts/model-evaluation']
-files=['Run GameDub.cmd','Setup.ps1','Test.ps1','Smoke-Test.ps1','requirements.lock.txt','GameDubAI.sln','Directory.Build.props','appsettings.example.json','README.md','IMPLEMENTATION_PLAN.md','TEST_RESULTS.md','PERFORMANCE_REPORT.md','FINAL_DEVELOPMENT_REPORT.md','THIRD_PARTY_NOTICES.md','LICENSE','models/kokoro-cpu-fp32.onnx','models/voices-v1.0.bin','models/manifest.json','models/derived-manifest.json','artifacts/app-smoke.json']
-files += ['WINDOW_SELECTION_FIX.md','SILENCE_FIX.md','artifacts/window-fix-smoke.json','artifacts/target-selection-smoke.json','artifacts/game-window-diagnostics.json','artifacts/runtime-verification.json']
+files=['Run GameDub.cmd','Setup.ps1','Test.ps1','Smoke-Test.ps1','requirements.lock.txt','GameDubAI.sln','Directory.Build.props','appsettings.example.json','README.md','docs/IMPLEMENTATION_PLAN.md','docs/TEST_RESULTS.md','docs/PERFORMANCE_REPORT.md','docs/FINAL_DEVELOPMENT_REPORT.md','docs/USER_GUIDE.md','THIRD_PARTY_NOTICES.md','LICENSE','models/kokoro-cpu-fp32.onnx','models/voices-v1.0.bin','models/manifest.json','models/derived-manifest.json','artifacts/app-smoke.json']
+files += ['docs/WINDOW_SELECTION_FIX.md','docs/SILENCE_FIX.md','artifacts/window-fix-smoke.json','artifacts/target-selection-smoke.json','artifacts/game-window-diagnostics.json','artifacts/runtime-verification.json']
 required=[app_dir+'/GameDub.App.exe','runtime/python.exe','models/kokoro-cpu-fp32.onnx','models/marian-en-hi/encoder_model_quantized.onnx']
 for name in required:
  if not (ROOT/name).exists():raise RuntimeError('Missing runnable bundle component: '+name)

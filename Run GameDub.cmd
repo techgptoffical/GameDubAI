@@ -5,8 +5,10 @@ if exist "%~dp0build\GameDubAI-next\GameDub.App.exe" set "gameDubExe=%~dp0build\
 if exist "%~dp0build\GameDubAI-v2\GameDub.App.exe" set "gameDubExe=%~dp0build\GameDubAI-v2\GameDub.App.exe"
 if exist "%~dp0build\GameDubAI-claude\GameDub.App.exe" set "gameDubExe=%~dp0build\GameDubAI-claude\GameDub.App.exe"
 if exist "%~dp0build\GameDubAI-gemini\GameDub.App.exe" set "gameDubExe=%~dp0build\GameDubAI-gemini\GameDub.App.exe"
-rem Newest build: game-safe folder (memory guard, Gemini, GPU voice, sentence merge)
+rem game-safe folder (memory guard, Gemini, GPU voice, sentence merge)
 if exist "%~dp0build\GameDubAI-gamesafe\GameDub.App.exe" set "gameDubExe=%~dp0build\GameDubAI-gamesafe\GameDub.App.exe"
+rem Newest build: v1.0 release (dark theme)
+if exist "%~dp0build\GameDubAI-v1\GameDub.App.exe" set "gameDubExe=%~dp0build\GameDubAI-v1\GameDub.App.exe"
 if not exist "%gameDubExe%" (
   echo GameDub build is missing. Run Setup.ps1 from this folder first.
   pause

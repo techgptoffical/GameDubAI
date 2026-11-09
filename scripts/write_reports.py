@@ -16,7 +16,7 @@ relative=str(result_path.relative_to(ROOT)).replace('\\','/')
 screen_times=sorted(x['FirstAudioMs'] for x in screen)
 now=datetime.now(timezone(timedelta(hours=5,minutes=30))).isoformat(timespec='seconds')
 test_names='\n'.join(f"- {'PASS' if t['passed'] else 'FAIL'} — {t['name']} ({t['ms']:.0f} ms)" for t in tests)
-(ROOT/'TEST_RESULTS.md').write_text(f'''# Actual test results
+(ROOT/'docs'/'TEST_RESULTS.md').write_text(f'''# Actual test results
 
 Report generated {now}. Final comprehensive suite: **{passed}/{len(tests)} passed**.
 
@@ -40,7 +40,7 @@ Earlier raw run folders remain available in `artifacts/tests`. Corrected issues 
 
 No real game, protected/fullscreen capture, FPS impact, multi-hour soak, disconnected-device recovery, or combined real-game automatic hybrid session was tested. The ASR fixture recognized `{asr['recognized']}` from synthetic English; this contains errors and proves pipeline operation, not speech-recognition accuracy. Actual actor speech and noisy gameplay still require testing. UI automation was stopped with Escape; subsequent checks used programmatic fixtures and the application startup/shutdown smoke test. Final interactive visual QA is incomplete.
 ''',encoding='utf-8')
-(ROOT/'PERFORMANCE_REPORT.md').write_text(f'''# Measured performance
+(ROOT/'docs'/'PERFORMANCE_REPORT.md').write_text(f'''# Measured performance
 
 Measured on Windows 11 with Intel i3-10105F, RTX 5060 Ti and 16 GB RAM. No game was running. Numbers are development-session observations, not gaming guarantees. Models use CPUExecutionProvider, two inference threads, BelowNormal worker priority and disabled idle spinning.
 
@@ -79,7 +79,7 @@ The original int8 Kokoro export took approximately 14–17 seconds for a short l
 
 The 500–800 ms uncached subtitle target is not met. Cached playback was fast in this fixture. Multi-sentence synthesis/playback overlap improves first playback while keeping one waiting sentence and retaining cancellation. Longer or rapidly skipped dialogue can still be dropped.
 ''',encoding='utf-8')
-(ROOT/'FINAL_DEVELOPMENT_REPORT.md').write_text(f'''# GameDub AI development handoff
+(ROOT/'docs'/'FINAL_DEVELOPMENT_REPORT.md').write_text(f'''# GameDub AI development handoff
 
 Built a genuinely audible, free local Windows prototype. It is ready to open and test; the professional cinematic-game-dubbing objective is **not yet achieved**.
 

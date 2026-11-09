@@ -1,60 +1,110 @@
-# GameDub AI — free local Windows prototype
+<div align="center">
 
-English game subtitles → offline Hindi translation → local neural Hindi speech. Also includes experimental process-audio recognition and automatic fallback. No accounts, API keys, subscriptions, microphones, game injection or game-file changes.
+<img src="docs/logo.png" width="96" alt="GameDub AI logo"/>
 
-## Run now
+# GameDub AI
 
-Double-click **Run GameDub.cmd** in this folder. The launcher prefers the updated `build/GameDubAI-next/GameDub.App.exe` when present, otherwise `build/GameDubAI/GameDub.App.exe`. Close older GameDub windows before relaunching. Keep the `workers`, `models`, and Python runtime folders beside the project. This build targets Windows 11 x64.
+**Play English games in Hindi.** GameDub AI reads a game's English subtitles, translates them to natural Hindi and speaks them with a local neural voice while you play.
 
-1. Open **Voice lab** and press **Translate + play A**. Try **Compare A / B** for Alpha and Omega.
-2. For an automatic demonstration, open **Dubbing → Test demo (not your game)**. Its region is selected automatically. Press **Start dubbing**, then **Play scene** in the demo. Keep the demo in front. The demo is a separate synthetic source; it does not dub the game behind it.
-3. For a game, enable English subtitles and use borderless/windowed mode. The list prioritizes known game processes and selects a sole detected game. Confirm the process shown under the list (for GTA V Enhanced: `GTA5_Enhanced`, not `steamwebhelper`). Select the game and drag a small region around its subtitles. If missing, click **Pick game in 5 seconds**, then switch to the game during the countdown. Closing the test demo clears its selection/region; windows are refreshed when returning to GameDub.
-4. Press **Start dubbing** and return to the game. **Stop / cancel speech** cancels generation and audio. Alt-tabbing suspends recognition/playback.
+![Platform](https://img.shields.io/badge/platform-Windows%2011%20x64-8B6FE0)
+![.NET](https://img.shields.io/badge/.NET-8-512BD4)
+![License](https://img.shields.io/badge/license-GPL--3.0-blue)
+![Status](https://img.shields.io/badge/status-prototype-orange)
 
-Windows English OCR must be installed. Do not select OBS or recording software as the source. Captures are transient subtitle crops in memory, never screen recordings.
+<img src="docs/screenshot.png" width="720" alt="GameDub AI main window"/>
 
-## Audio setup
+</div>
 
-Choose the output device and Hindi volume in Settings, then save. For the cleanest mix, manually lower the game's independent dialogue/voice slider while leaving music/effects on, and verify subtitles still appear. GameDub does not change game settings.
+---
 
-Optional ducking reduces only matching game audio sessions to 30% during Hindi playback and restores their volume on completion/cancellation. It lowers the **entire game mix**, including music/effects; it does not isolate speech. Other applications and master volume are not changed. Disable it if the game's audio session cannot be controlled.
+## How it works
 
-## Dialogue sources
+```
+ READ            TRANSLATE             VOICE                 PLAY
+ subtitle  ──▶  English → Hindi  ──▶  Hindi neural TTS  ──▶  your headphones,
+ region OCR      (local MT / LLM,      (Kokoro, IndicF5)       over the game's
+                  optional Gemini)                              music and effects
+```
 
-- **Subtitles:** preferred; foreground selected-window crop, native English OCR, stabilization and duplicate filtering.
-- **Game audio:** experimental Windows per-process loopback → Vosk English recognition → translation/TTS. Captures the game PID tree, not the microphone or GameDub output. Mixed music/effects can cause recognition errors.
-- **Automatic:** keeps the subtitle path preferred, uses audio when reliable subtitles are absent, and suppresses duplicate speech between paths. Its source arbitration is tested; a combined real-game session has not been tested.
+1. **Read:** you drag a box around the game's subtitles. GameDub crops only that region in memory and reads it with Windows English OCR. There's no screen recording, injection or game-file change.
+2. **Translate:** each line is translated with a local model (Marian/OPUS-MT, or a local conversational LLM when GPU memory allows). Gemini is optional and needs your own key.
+3. **Voice:** Kokoro (4 Hindi voices) or IndicF5 speaks the line. Characters can be mapped to voices.
+4. **Play:** audio goes to the device you choose. Optional ducking lowers the game's mix while Hindi plays.
 
-Audio modes require an external process. The built-in subtitle demo belongs to GameDub, so audio capture excludes it to prevent feedback.
+A live queue keeps the dub close to the scene. **Live Cinematic** drops lines that are too old; **Story Complete** speaks everything in order.
 
-## Voices and quality
+## Features
 
-Kokoro supplies four Hindi voices: `hf_alpha`, `hf_beta`, `hm_omega`, `hm_psi`. Settings/profile voice IDs are persistent. There is no actor cloning. No diarization is implemented; unknown speakers use the default voice.
+- Pick the game window and subtitle region, or use the 5-second picker
+- Subtitles, game-audio ASR (experimental) or automatic source selection
+- Character → voice mapping and per-game profiles (glossary, relationships)
+- Voice lab: try any line, A/B voices, rate playback
+- Dialogue history with replay of skipped lines
+- Diagnostics: OCR timing, crop capture, resource monitor
+- Fully offline by default; no accounts or telemetry
 
-The bundled neural runtime does not require a system Python installation. The separate eSpeak test fallback and synthetic-English test source require an installed eSpeak NG console executable; it was already installed on the development PC.
+## Quick start
 
-**This is not yet professional cinematic localization.** Arbitrary dialogue uses a small Marian/OPUS-MT model. It can mistranslate slang, pronouns, sarcasm and story meaning, and does not reason over scene history. Context/relationships are retained for profiles/cache identity and future providers. The bundled 32 examples use curated reference overrides; these are labeled separately from actual model translations. They are not evidence of general translation accuracy.
+> Requires Windows 11 x64 and the Windows English OCR language pack.
 
-Kokoro is a neural voice improvement over the robotic eSpeak test fallback, but has no supported Hindi emotion/whisper/shout controls here. Delivery hints do not provide acoustic emotion detection. Use the human rating tool and listening samples to judge it yourself.
+**Run a release build**
 
-Balanced uses a 6-second generation budget; Quality permits at least 10 seconds; Performance caps it at 4 seconds and uses a small 1.05× synthesis speed change. Late lines are dropped, never queued indefinitely. These modes do not imply different emotional acting models. Multi-sentence Hindi starts after its first sentence is generated, with the following sentence produced during playback and a one-chunk waiting buffer. Each sentence still requires full neural synthesis; this is not a token-by-token streaming decoder. An interrupted partial line is not cached as a complete utterance.
+1. Download `GameDubAI-win-x64.zip` from [Releases](../../releases) and extract it.
+2. Run `Setup.ps1` once from the repo folder to fetch the models (several GB).
+3. Double-click **`Run GameDub.cmd`**.
 
-## Profiles, glossary and review
+**Build from source**
 
-Select a game, then edit its JSON in Settings. `Voices` maps exact subtitle speaker labels to voice IDs. `Glossary` fixes named terms when their translation can be verified; uncertain matches are dropped rather than silently losing a term. `ReviewedLines` can override either an exact English line or `Speaker: English line`. These overrides are useful for important dialogue and ambiguous phrasing. Confirm your own Hindi wording.
+```powershell
+git clone <your-repo-url> GameDubAI
+cd GameDubAI
+./Setup.ps1          # Python runtime + models + release build in build/GameDubAI-v1
+./Test.ps1           # optional: test suite
+```
 
-`profiles/example-story-game.json` is a template. Persistent data stays under `local-settings` in this project. The generated-audio cache is bounded to 128 MiB and includes game, context, voice, model/version and glossary identity. No raw game voice recordings are stored. Human ratings and explicitly exported diagnostics are local files.
+Or just the app:
 
-## Build and test
+```powershell
+dotnet publish src/GameDub.App/GameDub.App.csproj -c Release -r win-x64 --self-contained -o build/GameDubAI-v1
+```
 
-The current folder is already set up. To recreate it: install Python 3.12 x64 and a .NET 8+ SDK using their normal supported installers, then run `./Setup.ps1`. The script downloads public free models only, checks disk space, builds local FP32 arithmetic from the upstream Kokoro export, and publishes a self-contained .NET application. It does not bypass PowerShell policy or Windows prompts. If scripting is restricted, run its listed commands manually in a permitted terminal.
+The app looks upward from its own folder for `workers/` and `models/`, so keep builds inside `build/`.
 
-Run `./Test.ps1` for the comprehensive suite. It opens a synthetic subtitle fixture and plays short synthetic English/Hindi samples. It does not record the screen, use a microphone, modify OBS or require a game. Machine-readable results go to `artifacts/tests/<timestamp>/results.json`.
+## Using it with a game
 
-`scripts/benchmark_local.py` generates ten Hindi lines with two voice configurations and records actual synthesis/CPU/RAM measurements. `scripts/evaluate_marian.py` and `scripts/evaluate_argos.py` save actual unmodified translations independently of reference overrides. See `TEST_RESULTS.md`, `PERFORMANCE_REPORT.md`, `THIRD_PARTY_NOTICES.md`, and `FINAL_DEVELOPMENT_REPORT.md`.
+1. Turn on **English subtitles** and use **borderless/windowed** mode.
+2. **Dubbing → Select your game.** For GTA V Enhanced, pick `GTA5_Enhanced`, not `steamwebhelper`.
+3. **Select subtitle region** and drag a tight box around the subtitles.
+4. **Start dubbing** and switch back to the game.
+5. For the cleanest mix, lower only the game's *dialogue* slider and keep music and effects up.
 
-## Known limits
+To try it without a game, use **Dubbing → Test demo**.
 
-No real game or FPS-impact test was completed. Fullscreen/protected surfaces, overlapping subtitles, OCR errors and unreliable speaker labels can fail. Cutscene interruption follows subtitle disappearance/changes (including a 700 ms clear debounce), not the game's internal cutscene state. Output-device changes require selecting a device and restarting; disconnect errors stop the current line. Ducking does not cover new sessions created midway through a line. Abruptly killing the process can prevent volume restoration; ordinary Stop/close paths restore it. No lip synchronization, source separation, advanced emotion analysis, voice cloning or installer is included.
+## Project layout
 
-The generated WAV examples in `artifacts/model-evaluation` are synthetic listening material. Current source is provided under GPL-3.0-or-later; third-party models/libraries retain their own licenses. See the notices before redistributing the software.
+```
+src/GameDub.App      WPF desktop app (UI, window/region pickers, dark theme in Themes/)
+src/GameDub.Core     pipeline: OCR, translation, TTS workers, queue, audio, profiles
+tests/GameDub.Tests  acceptance + integration tests (some need models / a GPU)
+workers/             Python workers for translation and speech
+scripts/             model setup, packaging, benchmarks, reports
+docs/                user guide, test results, performance and development reports
+```
+
+## Honest limitations
+
+- This is **not yet professional cinematic localization**. Small MT models can mistranslate slang, pronouns and sarcasm.
+- There's no voice cloning and no speaker diarization. Unknown speakers use the default voice.
+- Kokoro has no reliable emotion controls.
+- Ducking lowers the **whole** game mix; it doesn't isolate speech.
+- Game-audio recognition is experimental.
+
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full guide, and [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) and [docs/PERFORMANCE_REPORT.md](docs/PERFORMANCE_REPORT.md) for measured results.
+
+## Contributing
+
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+GPL-3.0; see [LICENSE](LICENSE). Bundled and downloaded models keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Some optional voices (Piper samples) are for non-commercial research only.

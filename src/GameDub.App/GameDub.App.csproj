@@ -1,4 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><UseWPF>true</UseWPF><ApplicationManifest>app.manifest</ApplicationManifest></PropertyGroup>
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\GameDub.ico</ApplicationIcon>
+    <AssemblyName>GameDub.App</AssemblyName>
+    <Product>GameDub AI</Product>
+    <Description>Live English to Hindi game dubbing from on-screen subtitles, with local models.</Description>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\logo.png" />
+  </ItemGroup>
   <ItemGroup><ProjectReference Include="../GameDub.Core/GameDub.Core.csproj" /></ItemGroup>
 </Project>

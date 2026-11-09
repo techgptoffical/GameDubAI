@@ -15,6 +15,8 @@ public partial class App : Application
             MessageBox.Show("GameDub AI is already running for this project. Use the existing window to avoid loading duplicate models.","GameDub AI");
             Shutdown();return;
         }
+        // Dark title bar on every window (Windows 10 20H1+ / Windows 11), matching the dark theme.
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent, new RoutedEventHandler((s, _) => DarkTitleBar.Apply((Window)s)));
         base.OnStartup(e);
     }
     protected override void OnExit(ExitEventArgs e)

@@ -1,0 +1,43 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build solution
+        run: dotnet build GameDubAI.sln -c Release --nologo
+
+      - name: Publish app (win-x64, self-contained)
+        run: dotnet publish src/GameDub.App/GameDub.App.csproj -c Release -r win-x64 --self-contained true -o dist/GameDubAI --nologo
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item "Run GameDub.cmd","Setup.ps1","README.md","LICENSE","THIRD_PARTY_NOTICES.md" dist/
+          Compress-Archive -Path dist/* -DestinationPath GameDubAI-win-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GameDubAI-win-x64
+          path: GameDubAI-win-x64.zip
+
+      - name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: GameDubAI-win-x64.zip

@@ -38,3 +38,11 @@ runtime-torch/
 runtime-hfcli/
 models/whisper-large-v3/
 models/voice-profiles/*.wav
+
+# Separate video projects (not part of the app)
+VIDEO-INTRO/
+VIDEO-EXPLAINER/
+
+# Release packaging
+dist/
+*.zip

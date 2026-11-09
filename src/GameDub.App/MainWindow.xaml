@@ -1,9 +1,9 @@
-<Window x:Class="GameDub.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="GameDub AI" Width="900" Height="850" MinWidth="760" MinHeight="740" Background="#11151B" Foreground="#ECEFF4" FontFamily="Segoe UI" FontSize="14" Closing="Window_Closing">
+<Window x:Class="GameDub.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="GameDub AI" Width="900" Height="850" MinWidth="760" MinHeight="740" Background="{StaticResource Base}" Foreground="#ECEFF4" FontFamily="Segoe UI" FontSize="14" Closing="Window_Closing">
  <Grid Margin="28,22">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <DockPanel><StackPanel><TextBlock Text="GameDub AI" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="English → Hindi · local models, optional Gemini translation" Foreground="#9DA9BB" Margin="0,4,0,16"/></StackPanel><TextBlock x:Name="ModeBadge" Text="OFFLINE" Foreground="#83B4FF" HorizontalAlignment="Right" FontSize="11" Margin="0,10,0,0"/></DockPanel>
-  <Border Grid.Row="1" Background="#1B2028" Padding="12,9" Margin="0,0,0,18"><TextBlock x:Name="Readiness" Text="Checking local models…" Foreground="#AABBD0"/></Border>
-  <TabControl Grid.Row="2" Background="#11151B" BorderThickness="0" SelectionChanged="Tabs_Changed">
+  <DockPanel Margin="0,0,0,16"><Border DockPanel.Dock="Right" VerticalAlignment="Center" CornerRadius="12" Padding="10,4" Background="#241E3D" BorderBrush="#4B3C8A" BorderThickness="1"><TextBlock x:Name="ModeBadge" Text="OFFLINE" Foreground="#C9B8FF" FontSize="11" FontWeight="SemiBold"/></Border><Image Source="Assets/logo.png" Width="48" Height="48" Margin="0,0,14,0" RenderOptions.BitmapScalingMode="HighQuality"/><StackPanel VerticalAlignment="Center"><TextBlock Text="GameDub AI" FontSize="26" FontWeight="Bold"/><TextBlock Text="English → Hindi game dubbing · local models, optional Gemini translation" Foreground="{StaticResource Muted}" Margin="0,2,0,0"/></StackPanel></DockPanel>
+  <Border Grid.Row="1" Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="14,10" Margin="0,0,0,14"><DockPanel><Ellipse Width="8" Height="8" Fill="{StaticResource Accent}" Margin="0,0,10,0" VerticalAlignment="Center"/><TextBlock x:Name="Readiness" Text="Checking local models…" Foreground="#C3CBDA"/></DockPanel></Border>
+  <TabControl Grid.Row="2" SelectionChanged="Tabs_Changed">
    <TabItem Header="Dubbing"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,18,0,10">
     <TextBlock Text="1. Select your actual running game" Foreground="#AAB6C8" Margin="0,0,0,7"/>
     <DockPanel><Button Content="Refresh" DockPanel.Dock="Right" Click="Refresh_Click" Margin="10,0,0,0"/><ComboBox x:Name="Games" SelectionChanged="Games_Changed"/></DockPanel>
@@ -20,14 +20,14 @@
      <StackPanel Grid.Column="1"><TextBlock Text="Performance mode" Foreground="#AAB6C8"/><ComboBox x:Name="Mode" Margin="0,5,0,0" SelectionChanged="Mode_Changed"><ComboBoxItem Content="Balanced"/><ComboBoxItem Content="Quality"/><ComboBoxItem Content="Performance"/></ComboBox></StackPanel>
     </Grid>
     <TextBlock Text="Voice quality needs your listening review. Kokoro has no reliable emotional acting controls." Foreground="#8D9BB0" FontSize="12" Margin="0,12,0,18"/>
-    <WrapPanel><Button x:Name="StartButton" Content="Start dubbing" Background="#3577CC" FontWeight="SemiBold" Click="Start_Click"/><Button Content="Stop / cancel speech" Click="Stop_Click"/></WrapPanel>
+    <WrapPanel><Button x:Name="StartButton" Content="Start dubbing" Style="{StaticResource AccentButton}" Click="Start_Click"/><Button Content="Stop / cancel speech" Click="Stop_Click"/></WrapPanel>
     <WrapPanel><Button Content="Catch up remembered dialogue" Click="CatchUp_Click"/><Button Content="Scene skipped • clear speech" Click="ClearScene_Click"/></WrapPanel>
     <TextBlock x:Name="BacklogStatus" Text="Live Cinematic stays close to the scene: at most 2 lines wait, lines older than 6 s are shown in History instead of spoken. Story Complete speaks everything in order and asks for Catch up after 20 s of lag." Foreground="#A7C9F6" TextWrapping="Wrap" Margin="0,8,0,4"/>
     <GroupBox Header="Latest dialogue"><StackPanel><TextBlock Text="ENGLISH" Foreground="#8291A7" FontSize="10"/><TextBlock x:Name="Original" Text="Waiting for dialogue…" FontSize="16" Margin="0,7,0,18"/><TextBlock Text="HINDI" Foreground="#8291A7" FontSize="10"/><TextBlock x:Name="Hindi" Text="हिंदी संवाद यहाँ दिखेगा।" FontFamily="Nirmala UI" FontSize="23" Margin="0,7,0,5"/><TextBlock x:Name="LineSource" FontSize="11" Foreground="#91A1B9"/></StackPanel></GroupBox>
     <TextBlock Text="For music and effects: lower only the game's dialogue volume yourself and keep subtitles enabled. Optional ducking lowers the selected game's entire mix while Hindi plays." Foreground="#9BA9BD" FontSize="12" Margin="0,14,0,0"/>
    </StackPanel></ScrollViewer></TabItem>
    <TabItem Header="History"><StackPanel Margin="0,12,0,0"><TextBlock Text="Every captured event is stored locally. Unspoken and skipped lines remain available for replay." TextWrapping="Wrap" Margin="0,0,0,8"/>
-    <DataGrid x:Name="DialogueHistory" Height="420" IsReadOnly="True" AutoGenerateColumns="False" SelectionMode="Single" Background="#1B2028" Foreground="#ECEFF4"><DataGrid.Columns>
+    <DataGrid x:Name="DialogueHistory" Height="420" IsReadOnly="True" AutoGenerateColumns="False" SelectionMode="Single" ><DataGrid.Columns>
      <DataGridTextColumn Header="#" Binding="{Binding Sequence}" Width="45"/><DataGridTextColumn Header="Speaker" Binding="{Binding Speaker}" Width="90"/>
      <DataGridTextColumn Header="English" Binding="{Binding English}" Width="*"/><DataGridTextColumn Header="Hindi" Binding="{Binding Hindi}" Width="*"/>
      <DataGridTextColumn Header="Speech" Binding="{Binding PlaybackState}" Width="85"/><DataGridTextColumn Header="Reason" Binding="{Binding CancellationReason}" Width="120"/>
@@ -35,7 +35,7 @@
     <TextBlock x:Name="HistoryDetail" TextWrapping="Wrap" Foreground="#A7C9F6" Margin="0,10,0,0"/></StackPanel></TabItem>
    <TabItem Header="Character Voices"><ScrollViewer Foreground="#ECEFF4" VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,12,0,10">
     <TextBlock Text="Names come from explicit subtitle labels or your manual selection. Text alone does not identify gender." TextWrapping="Wrap"/>
-    <DataGrid x:Name="CharacterTable" Height="190" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="CharacterTable_Changed" Background="#1B2028" Foreground="#ECEFF4"><DataGrid.Columns>
+    <DataGrid x:Name="CharacterTable" Height="190" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="CharacterTable_Changed" ><DataGrid.Columns>
      <DataGridTextColumn Header="Character" Binding="{Binding Name}" Width="*"/><DataGridTextColumn Header="Voice" Binding="{Binding Voice}" Width="*"/><DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="100"/>
     </DataGrid.Columns></DataGrid>
     <TextBlock Text="Character label" Margin="0,10,0,4"/><TextBox x:Name="CharacterName"/>
@@ -80,6 +80,6 @@
     <TextBlock x:Name="Metrics" Text="No measurements yet."/><TextBlock x:Name="ResourceInfo" Margin="0,16,0,16"/><TextBox x:Name="Log" Height="300" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/><Button Content="Export diagnostics" Click="Export_Click" HorizontalAlignment="Left" Margin="0,12,0,0"/><TextBlock Text="Latency ends at WASAPI Play(). Acoustic arrival and hardware buffering are not measured. FPS impact requires a real gameplay test." Foreground="#91A1B9" FontSize="12" Margin="0,14,0,0"/>
    </StackPanel></ScrollViewer></TabItem>
   </TabControl>
-  <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="#2D3542" Padding="0,12,0,0" Margin="0,14,0,0"><TextBlock x:Name="Status" Text="Ready to test local Hindi audio." Foreground="#A7C9F6" FontSize="12"/></Border>
+  <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="{StaticResource Line}" Padding="0,12,0,0" Margin="0,14,0,0"><TextBlock x:Name="Status" Text="Ready to test local Hindi audio." Foreground="#A7C9F6" FontSize="12"/></Border>
  </Grid>
 </Window>

@@ -14,7 +14,7 @@ Check-Exit
 Check-Exit
 & $python scripts/promote_kokoro.py
 Check-Exit
-$buildOutput = if (Test-Path -LiteralPath 'build/GameDubAI-next') { 'build/GameDubAI-next' } else { 'build/GameDubAI' }
+$buildOutput = 'build/GameDubAI-v1'
 dotnet publish src/GameDub.App/GameDub.App.csproj -c Release -r win-x64 --self-contained true -o $buildOutput --nologo
 Check-Exit
 if ($RunTests) { dotnet run --project tests/GameDub.Tests -- --integration --process-audio --screen --neural --asr --duck --windows; Check-Exit }
